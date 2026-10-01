@@ -1,0 +1,3 @@
+# Structured Astra example
+on player join:
+    tell player "Welcome to the server!"

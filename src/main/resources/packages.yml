@@ -1,0 +1,11 @@
+# Astra package system
+packages:
+  folder: packages
+  auto-load: true
+  resolve-dependencies: true
+  allow-remote-install: false
+  check-updates: true
+
+dependencies:
+  fail-on-missing-required: true
+  warn-on-missing-optional: true

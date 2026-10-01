@@ -1,0 +1,13 @@
+# Build output (the packaged jar in dist/ is tracked on purpose: it is a deliverable).
+build/
+target/
+.gradle/
+*.class
+*.log
+
+# Local server state created when the plugin runs.
+data/*.db
+data/*.db-journal
+logs/*.log
+cache/*
+!cache/README.txt

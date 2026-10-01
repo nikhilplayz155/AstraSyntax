@@ -1,0 +1,3 @@
+when player kills zombie:
+    add 5 coins to player
+    tell player "You earned 5 coins!"

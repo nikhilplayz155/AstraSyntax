@@ -1,0 +1,45 @@
+# AstraSyntax - Main Configuration
+general:
+  language: en
+  check-updates: true
+  metrics: true
+
+scripts:
+  folder: scripts
+  file-extension: ".ar"
+  load-on-startup: true
+  auto-reload: false
+  continue-on-script-error: true
+
+natural-language:
+  enabled: true
+  allow-mixed-mode: true
+  strict-mode: true
+
+developer:
+  debug: false
+  detailed-errors: true
+  suggestions: true
+  profiler: false
+
+examples:
+  generate: true
+
+features:
+  natural-language: true
+  custom-items: true
+  custom-mobs: true
+  bosses: true
+  gui: true
+  quests: true
+  economy: true
+  regions: true
+  npc: true
+  holograms: true
+  scoreboards: true
+  bossbars: true
+  placeholders: true
+  recipes: true
+  webhooks: false
+  http: false
+  cross-server: false

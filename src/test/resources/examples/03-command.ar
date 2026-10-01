@@ -1,0 +1,4 @@
+command /heal:
+    require permission "astra.heal"
+    heal player
+    tell player "You are healed!"

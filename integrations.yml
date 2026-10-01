@@ -1,0 +1,19 @@
+# Optional integrations
+vault:
+  enabled: auto
+
+placeholderapi:
+  enabled: auto
+
+citizens:
+  enabled: auto
+
+worldguard:
+  enabled: auto
+
+redis:
+  enabled: false
+  host: localhost
+  port: 6379
+  password: ""
+  database: 0

@@ -1,0 +1,110 @@
+// AstraSyntax - Gradle build (mirrors Maven pom.xml 1:1)
+// Target version line: 1.21.11-26.2
+// Supported software: Folia, Paper, Purpur, Spigot, Leaf
+// Author: AstraLab - LivingCritz DevSolentz
+//
+// DELIBERATE DESIGN DECISIONS (same as pom.xml):
+//   * Compile against the Spigot API rather than one fork's API. Spigot's API is
+//     the lowest common denominator shared by all five supported platforms, so
+//     the compiler itself rejects any accidental link to a fork-only class.
+//     Paper/Folia/Purpur/Leaf capabilities are resolved at runtime by
+//     io.astra.platform.PlatformDetector.
+//   * No shadow/shade plugin. The JDBC drivers stay whole and are embedded as
+//     nested jars under astra/lib/ inside the plugin jar; io.astra.data.LibLoader
+//     extracts them on first start (hash-verified) and registers them through an
+//     isolated class loader. That avoids clashing with another plugin that
+//     bundles a different sqlite-jdbc build.
+//   * No annotation processors and no code generation: the build is reproducible
+//     with javac plus the declared dependencies.
+
+plugins {
+    id 'java'
+}
+
+group = 'io.astral'
+version = '1.21.11-26.2'
+description = 'A Minecraft scripting and automation platform (.ar) for Folia, Paper, Purpur, Spigot and Leaf.'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+repositories {
+    // Authoritative source of spigot-api.
+    maven {
+        url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/'
+        content { includeGroup 'org.spigotmc' }
+    }
+    maven { url = 'https://repo.md-5.net/content/groups/public/' }
+    mavenCentral()
+    // Only needed when switching the compile API to paper-api; see README.
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    // HARD (compile only): server API, provided by every supported server.
+    // Never bundled into the plugin jar.
+    compileOnly 'org.spigotmc:spigot-api:1.21-R0.1-SNAPSHOT'
+
+    // HARD (runtime): default storage backend (storage.yml -> type: sqlite).
+    // Bundled as astra/lib/sqlite-jdbc-<version>.jar.
+    runtimeOnly 'org.xerial:sqlite-jdbc:3.47.1.0'
+
+    // OPTIONAL (runtime): only loaded when storage.yml selects mysql/mariadb.
+    // Bundled as astra/lib/mysql-connector-j-<version>.jar.
+    runtimeOnly 'com.mysql:mysql-connector-j:9.1.0'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+}
+
+// Copies the driver jars into a staging folder that processResources embeds.
+tasks.register('stageDriverJars', Sync) {
+    from(configurations.runtimeClasspath) {
+        include 'sqlite-jdbc-*.jar'
+        include 'mysql-connector-j-*.jar'
+    }
+    into(layout.buildDirectory.dir('astra-lib'))
+}
+
+processResources {
+    // plugin.yml carries ${project.version}; everything else is copied verbatim
+    // so the shipped YAML/or examples stay byte-identical to the project files.
+    filesMatching('plugin.yml') {
+        expand(version: project.version)
+    }
+    from(tasks.named('stageDriverJars')) {
+        into 'astra/lib'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+    options.compilerArgs << '-Xlint:deprecation'
+}
+
+jar {
+    archiveBaseName = 'AstraSyntax'
+    archiveVersion = project.version
+    manifest {
+        attributes(
+            'Implementation-Title': 'AstraSyntax',
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': 'AstraLab - LivingCritz DevSolentz',
+            'Astra-Target': '1.21.11-26.2'
+        )
+    }
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+}

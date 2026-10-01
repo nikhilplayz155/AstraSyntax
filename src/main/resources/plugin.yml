@@ -1,0 +1,98 @@
+# AstraSyntax - plugin descriptor
+#
+# Target version line: 1.21.11-26.2
+# Supported software: Folia, Paper, Purpur, Spigot, Leaf
+# Author: AstraLab - LivingCritz DevSolentz
+#
+# The version below is filtered at build time (Maven resource filtering /
+# Gradle processResources) from the project version, so it always matches the
+# artifact that was built.
+name: AstraSyntax
+version: '${project.version}'
+main: io.astra.plugin.AstraPlugin
+api-version: '1.21'
+description: 'Scripting and automation platform (.ar language + natural language) for Folia, Paper, Purpur, Spigot and Leaf.'
+authors: ['AstraLab - LivingCritz DevSolentz']
+website: 'https://github.com/nikhilplayz155/AstraSyntax'
+
+# Folia only starts plugins that declare this flag. AstraSyntax uses the
+# region-aware scheduler abstraction internally, so the flag is accurate rather
+# than aspirational; see README "Folia support".
+folia-supported: true
+
+commands:
+  astra:
+    description: 'Manage AstraSyntax scripts, modules and integrations.'
+    usage: |
+      /astra reload [script] - reload every script or one script
+      /astra load <file> - compile and start a script
+      /astra unload <script> - stop and unload a script
+      /astra scripts - list loaded scripts
+      /astra check [script] - re-check without applying
+      /astra info - runtime, storage and integration status
+      /astra debug - toggle developer diagnostics
+      /astra explain <script> - explain what a script compiles to
+      /astra trace <script|off> - record a rule execution trace
+      /astra performance [reset] - profiling report
+      /astra errors - recent diagnostics
+      /astra package list|install <url|file> [sha256]|load <name>|unload <name> - manage packages
+    aliases: [ar, astra]
+    permission: astra.command
+
+permissions:
+  astra.admin:
+    description: 'Full access to every AstraSyntax command and bypasses the per-subcommand permissions.'
+    default: op
+    children:
+      astra.command: true
+      astra.command.reload: true
+      astra.command.load: true
+      astra.command.unload: true
+      astra.command.scripts: true
+      astra.command.check: true
+      astra.command.info: true
+      astra.command.debug: true
+      astra.command.explain: true
+      astra.command.trace: true
+      astra.command.performance: true
+      astra.command.errors: true
+      astra.command.package: true
+  astra.command:
+    description: 'Base permission required to use /astra at all.'
+    default: op
+  astra.command.reload:
+    description: 'Allow /astra reload.'
+    default: op
+  astra.command.load:
+    description: 'Allow /astra load.'
+    default: op
+  astra.command.unload:
+    description: 'Allow /astra unload.'
+    default: op
+  astra.command.scripts:
+    description: 'Allow /astra scripts.'
+    default: op
+  astra.command.check:
+    description: 'Allow /astra check.'
+    default: op
+  astra.command.info:
+    description: 'Allow /astra info.'
+    default: op
+  astra.command.debug:
+    description: 'Allow /astra debug.'
+    default: op
+  astra.command.explain:
+    description: 'Allow /astra explain.'
+    default: op
+  astra.command.trace:
+    description: 'Allow /astra trace.'
+    default: op
+  astra.command.performance:
+    description: 'Allow /astra performance.'
+    default: op
+  astra.command.errors:
+    description: 'Allow /astra errors.'
+    default: op
+  astra.command.package:
+    description: 'Install, load and unload Astra packages.'
+    default: op

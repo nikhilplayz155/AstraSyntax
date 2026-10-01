@@ -1,0 +1,14 @@
+# AstraSyntax messages
+prefix: "<gradient:#8A5CFF:#41C7FF>Astra</gradient>"
+
+startup: "AstraSyntax is ready."
+reload-success: "{file} reloaded successfully."
+reload-failed: "Couldn't reload {file}."
+script-loaded: "Loaded {file}."
+script-unloaded: "Unloaded {file}."
+unknown-item: "Unknown item: {item}"
+unknown-action: "Unknown action: {action}"
+no-permission: "You don't have permission."
+script-error: "Problem found on line {line}."
+suggestion: "Did you mean: {suggestion}?"
+natural-language-error: "I couldn't understand this rule: {rule}"

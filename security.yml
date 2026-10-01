@@ -1,0 +1,24 @@
+# Security defaults - keep risky capabilities opt-in
+scripts:
+  allow-console-commands: true
+  allow-file-access: false
+  allow-http-requests: false
+
+http:
+  allowed-domains: []
+
+webhooks:
+  enabled: false
+  allowed-domains: []
+
+packages:
+  allow-remote-install: false
+  require-signatures: false
+
+modules:
+  require-trusted-modules: true
+
+limits:
+  max-loop-iterations: 10000
+  max-tasks-per-script: 1000
+  max-http-response-size: 2MB
