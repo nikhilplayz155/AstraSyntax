@@ -1,0 +1,9 @@
+# Astra module system
+modules:
+  auto-load: true
+  folder: modules
+  check-compatibility: true
+  isolate-failures: true
+
+loading:
+  continue-on-module-error: true

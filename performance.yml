@@ -1,0 +1,19 @@
+# Runtime and compiler performance
+scripts:
+  compile-cache: true
+  parallel-loading: true
+
+events:
+  warn-slow-rules: true
+  slow-rule-threshold: 10ms
+
+scheduler:
+  async-safe-actions: true
+
+profiler:
+  enabled: false
+  history-size: 100
+
+limits:
+  max-loaded-scripts: 1000
+  max-scheduled-tasks: 10000
