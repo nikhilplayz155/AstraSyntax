@@ -52,12 +52,17 @@ import java.util.Set;
 public final class AstraCompiler {
 
     /** Action ids whose behaviour needs an optional feature from {@code config.yml}. */
-    private static final Map<String, String> ACTION_FEATURES = Map.of(
-        "http-request", "http",
-        "webhook", "webhooks",
-        "discord", "webhooks",
-        "cross-server", "cross-server",
-        "remote-install", "remote-install");
+    private static final Map<String, String> ACTION_FEATURES = Map.ofEntries(
+        Map.entry("http-request", "http"),
+        Map.entry("webhook", "webhooks"),
+        Map.entry("discord", "webhooks"),
+        Map.entry("cross-server", "cross-server"),
+        Map.entry("remote-install", "remote-install"),
+        // Gameplay systems: the loader refuses a script when the matching config.yml
+        // feature switch is off (see io.astra.config.FeatureFlags).
+        Map.entry("give-money", "economy"),
+        Map.entry("take-money", "economy"),
+        Map.entry("set-balance", "economy"));
 
     /** Trigger phrase prefixes that imply a feature flag. */
     private static final Map<String, String> TRIGGER_FEATURES = Map.of(

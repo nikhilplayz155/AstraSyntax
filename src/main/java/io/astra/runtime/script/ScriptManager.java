@@ -1,5 +1,6 @@
 package io.astra.runtime.script;
 
+import io.astra.language.ast.Span;
 import io.astra.language.compiler.AstraCompiler;
 import io.astra.language.compiler.CompilationResult;
 import io.astra.language.diagnostics.Diagnostic;
@@ -311,6 +312,8 @@ public final class ScriptManager implements EventBus.Dispatcher {
             CompilationResult compiled = compiler.compile(parsed);
             if (!compiled.success()) {
                 result = compiled;
+            } else if (!featureProblems(services.config().main().features(), compiled.script(), diagnostics, logger)) {
+                result = CompilationResult.failure(diagnostics, hash);
             } else {
                 // Parser warnings plus compiler warnings, in that order.
                 result = new CompilationResult(compiled.script(), List.of(),
@@ -319,6 +322,42 @@ public final class ScriptManager implements EventBus.Dispatcher {
         }
         if (cacheEnabled) compileCache.put(name, new CachedCompile(hash, result));
         return result;
+    }
+
+    /**
+     * Reports scripts that need a feature switched off in {@code config.yml}.
+     *
+     * <p>This is the only place the feature flags are enforced, which is what makes them
+     * real: a script requiring {@code features.economy} cannot be loaded while that switch
+     * is off, and the loader - not a runtime check - is what says so. The previous good
+     * version of the script stays active, exactly like a compile error.</p>
+     *
+     * @return true when the script may be activated
+     */
+    static boolean featureProblems(io.astra.config.AstraSettings.Features flags, CompiledScript script,
+                                   DiagnosticCollector diagnostics, AstraLogger logger) {
+        if (script == null) return true;
+        List<String> disabled = io.astra.config.FeatureFlags.disabled(flags, script.requiredFeatures());
+        if (disabled.isEmpty()) return true;
+        for (String feature : disabled) {
+            String key = io.astra.config.FeatureFlags.configKey(feature);
+            int line = 1;
+            int column = 1;
+            if (!script.rules().isEmpty()) {
+                Span span = script.rules().get(0).span();
+                if (span != null) {
+                    line = span.line();
+                    column = span.column();
+                }
+            }
+            diagnostics.error("Feature '" + feature + "' is disabled in config.yml",
+                line, column,
+                "This script uses '" + feature + "', but " + key + " is set to false.",
+                List.of("Set " + key + ": true in config.yml and run /astra reload.",
+                    "Or remove the '" + feature + "' part of the script."));
+        }
+        logger.warn("Refused a script that needs disabled feature(s): " + String.join(", ", disabled));
+        return false;
     }
 
     private static List<Diagnostic> mergeWarnings(DiagnosticCollector parserDiagnostics, CompilationResult compiled) {

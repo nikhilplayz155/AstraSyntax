@@ -89,6 +89,10 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
     private AstraCommand adminCommand;
     private volatile boolean shuttingDown;
     private LibLoader.Loaded libLoader;
+    private volatile io.astra.runtime.net.HttpService httpService;
+
+    /** Outbound HTTP timeout. {@code security.yml} caps the size, not the duration. */
+    private static final long HTTP_TIMEOUT_MILLIS = 10_000L;
 
     @Override
     public void onEnable() {
@@ -211,6 +215,28 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
             default -> SqlStorage.sqlite(getDataFolder().toPath().resolve(storageSettings.storage().sqlite().file()),
                 logger);
         };
+    }
+
+    @Override
+    public io.astra.runtime.economy.Economy economy() {
+        io.astra.integration.IntegrationManager integration = integrations;
+        if (integration == null) return null;
+        return integration.economy()
+            .filter(bridge -> bridge.available())
+            .orElse(null);
+    }
+
+    @Override
+    public io.astra.runtime.net.HttpService http() {
+        io.astra.runtime.net.HttpService service = httpService;
+        if (service != null) return service;
+        synchronized (this) {
+            if (httpService == null) {
+                httpService = new io.astra.runtime.net.HttpService(security, logger, HTTP_TIMEOUT_MILLIS,
+                    (int) Math.min(Integer.MAX_VALUE, security.policy().maxHttpResponseSize()));
+            }
+            return httpService;
+        }
     }
 
     private void registerAdminCommand() {

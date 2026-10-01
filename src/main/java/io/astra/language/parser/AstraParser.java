@@ -49,6 +49,9 @@ public final class AstraParser {
     private final Vocabulary vocabulary;
     private final NaturalLanguageCompiler naturalLanguage;
 
+    /** The parser that compiles natural-language action fragments (null for that parser itself). */
+    private final AstraParser fragmentParser;
+
     private String source = "";
     private String file = "<script>";
     private List<String> rawLines = List.of();
@@ -64,13 +67,31 @@ public final class AstraParser {
     private final Set<String> variables = new LinkedHashSet<>();
 
     public AstraParser(DiagnosticCollector diagnostics) {
-        this(diagnostics, VocabularyProvider.defaultVocabulary());
+        this(diagnostics, VocabularyProvider.defaultVocabulary(), false);
     }
 
     public AstraParser(DiagnosticCollector diagnostics, Vocabulary vocabulary) {
+        this(diagnostics, vocabulary, false);
+    }
+
+    /**
+     * @param fragmentParser true when this instance exists only to compile the action
+     *                       fragments of a natural-language sentence. Such an instance
+     *                       must not create a second fragment parser, and it must own its
+     *                       line buffer: the sentence compiler runs while the outer script
+     *                       is mid-parse, so sharing {@code lines}/{@code cursor} would
+     *                       corrupt the file being parsed.
+     */
+    private AstraParser(DiagnosticCollector diagnostics, Vocabulary vocabulary, boolean fragmentParser) {
         this.diagnostics = diagnostics == null ? new DiagnosticCollector() : diagnostics;
         this.vocabulary = vocabulary == null ? VocabularyProvider.defaultVocabulary() : vocabulary;
         this.naturalLanguage = new NaturalLanguageCompiler(this.vocabulary, this.diagnostics);
+        if (fragmentParser) {
+            this.fragmentParser = null;
+        } else {
+            this.fragmentParser = new AstraParser(this.diagnostics, this.vocabulary, true);
+            this.naturalLanguage.setFragmentCompiler(this.fragmentParser);
+        }
     }
 
     /** The vocabulary in use (module contributions included). */
@@ -131,6 +152,8 @@ public final class AstraParser {
         this.functions.clear();
         this.variables.clear();
         this.diagnostics.setFile(this.file);
+        // Sentence fragments are reported against the script they appear in.
+        if (fragmentParser != null) fragmentParser.file = this.file;
 
         List<Token> tokens = new AstraLexer(diagnostics).lex(this.source, this.file);
         this.lines = toLines(tokens);

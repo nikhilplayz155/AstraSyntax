@@ -138,7 +138,7 @@ public final class IntegrationManager {
     }
 
     /** Reflection bridge to a Vault economy provider. */
-    public static final class EconomyBridge {
+    public static final class EconomyBridge implements io.astra.runtime.economy.Economy {
 
         private final Object provider;
         private final Method getBalance;
@@ -161,11 +161,58 @@ public final class IntegrationManager {
             this.decimals = supportsDecimals == null || Boolean.TRUE.equals(supportsDecimals);
         }
 
+        @Override
+        public boolean available() {
+            return getBalance != null && depositPlayer != null && withdrawPlayer != null;
+        }
+
+        /** Generic helper: Vault exposes this as {@code isEnabled()}. */
+        public boolean enabled() {
+            return available() && !Boolean.FALSE.equals(Reflect.invokeQuietly(provider, "isEnabled", 0));
+        }
+
         public Object provider() {
             return provider;
         }
 
+        /** Resolves an id to a player the provider understands. */
+        private static OfflinePlayer resolve(java.util.UUID id) {
+            if (id == null) return null;
+            Player online = Bukkit.getPlayer(id);
+            return online != null ? online : Bukkit.getOfflinePlayer(id);
+        }
+
+        @Override
+        public double balance(java.util.UUID player) {
+            OfflinePlayer target = resolve(player);
+            return target == null ? -1 : balance(target);
+        }
+
+        @Override
+        public boolean deposit(java.util.UUID player, double amount) {
+            OfflinePlayer target = resolve(player);
+            return target != null && deposit(target, amount);
+        }
+
+        @Override
+        public boolean withdraw(java.util.UUID player, double amount) {
+            OfflinePlayer target = resolve(player);
+            return target != null && withdraw(target, amount);
+        }
+
+        /** Vault's own text for an amount. */
+        @Override
+        public String format(double amount) {
+            return formatAmount(amount);
+        }
+
+        @Override
+        public String currency() {
+            return currencyNameText();
+        }
+
         /** The provider's own name ("Essentials Economy", "CMI", ...). */
+        @Override
         public String name() {
             Object value = Reflect.invokeQuietly(provider, "getName", 0);
             return value == null ? "Vault economy" : String.valueOf(value);
@@ -189,13 +236,15 @@ public final class IntegrationManager {
             return result == null || Boolean.TRUE.equals(readSuccess(result));
         }
 
-        public String format(double amount) {
+        /** Vault's own text for an amount. */
+        public String formatAmount(double amount) {
             if (format == null) return String.valueOf(amount);
             Object result = Reflect.invokeQuietly(format, provider, amount);
             return result == null ? String.valueOf(amount) : String.valueOf(result);
         }
 
-        public String currency() {
+        /** Plural currency name, or an empty string. */
+        public String currencyNameText() {
             if (currencyName == null) return "";
             Object result = Reflect.invokeQuietly(currencyName, provider);
             return result == null ? "" : String.valueOf(result);

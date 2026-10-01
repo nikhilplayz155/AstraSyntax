@@ -48,6 +48,8 @@ public final class Builtins {
         BuiltinActions.registerAll(actions);
         BuiltinConditions.registerAll(conditions);
         BuiltinExpressions.registerAll(expressions);
+        BuiltinEconomy.registerAll(actions, conditions, expressions);
+        BuiltinNetwork.registerAll(actions);
         registerPlaceholders(placeholders);
 
         // Documentation is derived, never hand-maintained: every registered element
