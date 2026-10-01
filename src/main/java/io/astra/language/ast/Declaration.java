@@ -4,6 +4,7 @@ import io.astra.runtime.Value;
 import io.astra.runtime.ValueType;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * A top-level declaration in a script.
@@ -15,7 +16,7 @@ import java.util.List;
  */
 public sealed interface Declaration extends Node
     permits Declaration.Event, Declaration.Command, Declaration.Function, Declaration.Timer, Declaration.Data,
-        Declaration.Natural {
+        Declaration.CustomItem, Declaration.Menu, Declaration.Recipe, Declaration.Region, Declaration.Natural {
 
     /** One line describing the declaration. */
     String describe();
@@ -74,6 +75,63 @@ public sealed interface Declaration extends Node
                 Span span) implements Declaration {
         @Override public String describe() {
             return "data " + key;
+        }
+    }
+
+    /** One enchantment on a custom item. */
+    record ItemEnchant(String name, int level) { }
+
+    /** A custom item: {@code item legendary_sword: material diamond_sword ... }. */
+    record CustomItem(String name, String material, int amount, String displayName, List<String> lore,
+                      List<ItemEnchant> enchants, boolean unbreakable, List<String> flags,
+                      Span span) implements Declaration {
+        public CustomItem {
+            lore = lore == null ? List.of() : List.copyOf(lore);
+            enchants = enchants == null ? List.of() : List.copyOf(enchants);
+            flags = flags == null ? List.of() : List.copyOf(flags);
+        }
+
+        @Override public String describe() {
+            return "item " + name;
+        }
+    }
+
+    /** One button inside a menu. */
+    record MenuSlot(int index, String material, String displayName, List<String> lore, Stmt.Block body, Span span) {
+        public MenuSlot {
+            lore = lore == null ? List.of() : List.copyOf(lore);
+        }
+    }
+
+    /** A chest menu: {@code menu shop: title "Shop" ... slot 13: ... }. */
+    record Menu(String name, String title, int size, List<MenuSlot> slots, Span span) implements Declaration {
+        public Menu {
+            slots = slots == null ? List.of() : List.copyOf(slots);
+        }
+
+        @Override public String describe() {
+            return "menu " + name;
+        }
+    }
+
+    /** A crafting recipe: {@code recipe planks: result 4 stick ... }. */
+    record Recipe(String name, boolean shaped, List<String> shape, Map<String, String> ingredients,
+                  String resultMaterial, int resultAmount, Span span) implements Declaration {
+        public Recipe {
+            shape = shape == null ? List.of() : List.copyOf(shape);
+            ingredients = ingredients == null ? Map.of() : Map.copyOf(ingredients);
+        }
+
+        @Override public String describe() {
+            return "recipe " + name;
+        }
+    }
+
+    /** A named cuboid region: {@code region spawn_area: world world ... }. */
+    record Region(String name, String world, double x1, double y1, double z1, double x2, double y2, double z2,
+                  Span span) implements Declaration {
+        @Override public String describe() {
+            return "region " + name;
         }
     }
 

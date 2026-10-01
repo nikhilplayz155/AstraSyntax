@@ -206,6 +206,18 @@ public final class AstraParser {
                 return parseNatural(line, units);
             case "data", "declare":
                 return parseData(line);
+            case "item", "custom-item":
+                if (colon) return parseCustomItem(line);
+                return parseNatural(line, units);
+            case "menu", "gui":
+                if (colon) return parseMenu(line);
+                return parseNatural(line, units);
+            case "recipe":
+                if (colon) return parseRecipe(line);
+                return parseNatural(line, units);
+            case "region":
+                if (colon) return parseRegion(line);
+                return parseNatural(line, units);
             case "import", "include", "require-file":
                 problem(Severity.WARNING, "feature", "Imports are not supported yet",
                     line.first(), "AstraSyntax loads every .ar file in the scripts folder; "
@@ -576,6 +588,372 @@ public final class AstraParser {
             };
         }
         return new Declaration.Data(key, type, Value.of(defaultValue), persistent, perPlayer, span(header));
+    }
+
+    // --------------------------------------------------------- gameplay blocks
+
+    /**
+     * A custom item: {@code item legendary_sword:} followed by its properties.
+     *
+     * <p>Properties are keyword lines rather than free text, so a typo is an error with the
+     * list of accepted keys instead of a silently ignored line.</p>
+     */
+    private Declaration parseCustomItem(Line header) {
+        cursor++;
+        String name = tokenText(header, 1);
+        if (Strings.isBlank(name)) {
+            problem(Severity.ERROR, "item", "This item has no name",
+                header.first(), "Write the declaration as 'item <name>:'.",
+                List.of("item legendary_sword:"));
+            skipBlock(header.depth());
+            return null;
+        }
+        String material = null;
+        Token materialToken = header.first();
+        String displayName = null;
+        int amount = 1;
+        boolean unbreakable = false;
+        List<String> lore = new ArrayList<>();
+        List<String> flags = new ArrayList<>();
+        List<Declaration.ItemEnchant> enchants = new ArrayList<>();
+
+        while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
+            Line line = lines.get(cursor);
+            switch (line.head()) {
+                case "material", "type", "of" -> {
+                    material = tokenText(line, 1);
+                    materialToken = line.tokens().size() > 1 ? line.tokens().get(1) : line.first();
+                    cursor++;
+                }
+                case "name", "display", "display-name", "displayname" -> {
+                    displayName = lineText(line, 1);
+                    cursor++;
+                }
+                case "lore", "description" -> {
+                    lore.add(lineText(line, 1));
+                    cursor++;
+                }
+                case "amount", "count" -> {
+                    amount = lineInt(line, 1, 1);
+                    cursor++;
+                }
+                case "enchant", "enchantment", "enchanted" -> {
+                    enchants.add(new Declaration.ItemEnchant(tokenText(line, 1), lineInt(line, 2, 1)));
+                    cursor++;
+                }
+                case "unbreakable" -> {
+                    unbreakable = lineBool(line, 1, true);
+                    cursor++;
+                }
+                case "flag", "flags", "hide" -> {
+                    flags.addAll(lineWords(line, 1));
+                    cursor++;
+                }
+                default -> {
+                    unknownProperty(line, "item",
+                        List.of("material", "name", "lore", "amount", "enchant", "unbreakable", "flags"));
+                    cursor++;
+                }
+            }
+        }
+        if (Strings.isBlank(material)) {
+            problem(Severity.ERROR, "item", "Item '" + name + "' has no material",
+                header.first(), "Every custom item needs the material it is made of.",
+                List.of("material diamond_sword"));
+            return null;
+        }
+        if (!vocabulary.isMaterial(material)) {
+            problem(Severity.ERROR, "material", "Unknown item: " + material, materialToken,
+                "The material is not a Minecraft material name or a known alias.",
+                vocabulary.materialSuggestions(material));
+            return null;
+        }
+        return new Declaration.CustomItem(name, material.toLowerCase(Locale.ROOT), Math.max(1, amount), displayName,
+            lore, enchants, unbreakable, flags, span(header));
+    }
+
+    /** A chest menu: {@code menu shop: title ... size ... slot <index>: ... }. */
+    private Declaration parseMenu(Line header) {
+        cursor++;
+        String name = tokenText(header, 1);
+        if (Strings.isBlank(name)) {
+            problem(Severity.ERROR, "gui", "This menu has no name",
+                header.first(), "Write the declaration as 'menu <name>:'.",
+                List.of("menu shop:"));
+            skipBlock(header.depth());
+            return null;
+        }
+        String title = name;
+        int size = 27;
+        List<Declaration.MenuSlot> slots = new ArrayList<>();
+
+        while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
+            Line line = lines.get(cursor);
+            switch (line.head()) {
+                case "title", "name" -> {
+                    title = lineText(line, 1);
+                    cursor++;
+                }
+                case "size" -> {
+                    size = lineInt(line, 1, 27);
+                    cursor++;
+                }
+                case "rows" -> {
+                    size = lineInt(line, 1, 3) * 9;
+                    cursor++;
+                }
+                case "slot", "button" -> {
+                    Declaration.MenuSlot slot = parseMenuSlot(line);
+                    if (slot != null) slots.add(slot);
+                }
+                default -> {
+                    unknownProperty(line, "menu", List.of("title", "size", "rows", "slot"));
+                    cursor++;
+                }
+            }
+        }
+        if (slots.isEmpty()) {
+            problem(Severity.WARNING, "gui", "Menu '" + name + "' has no buttons",
+                header.first(), "A menu without slots opens an empty inventory.", List.of());
+        }
+        return new Declaration.Menu(name, title, size, slots, span(header));
+    }
+
+    /** One clickable slot inside a menu: {@code slot 13: item diamond ... actions }. */
+    private Declaration.MenuSlot parseMenuSlot(Line header) {
+        cursor++;
+        int index = lineInt(header, 1, -1);
+        if (index < 0) {
+            problem(Severity.ERROR, "gui", "This slot has no index",
+                header.first(), "Write the slot as 'slot <0-53>:'.",
+                List.of("slot 13:"));
+            skipBlock(header.depth());
+            return null;
+        }
+        String material = "stone";
+        String displayName = null;
+        List<String> lore = new ArrayList<>();
+        List<Stmt> body = new ArrayList<>();
+
+        while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
+            Line line = lines.get(cursor);
+            switch (line.head()) {
+                case "item", "material" -> {
+                    material = tokenText(line, 1);
+                    cursor++;
+                }
+                case "name", "display-name" -> {
+                    displayName = lineText(line, 1);
+                    cursor++;
+                }
+                case "lore", "description" -> {
+                    lore.add(lineText(line, 1));
+                    cursor++;
+                }
+                default -> {
+                    // Anything else is an ordinary action statement.
+                    Stmt statement = parseStatement(line);
+                    if (statement != null) body.add(statement);
+                }
+            }
+        }
+        return new Declaration.MenuSlot(index, material == null ? "stone" : material.toLowerCase(Locale.ROOT),
+            displayName, lore, new Stmt.Block(body, span(header)), span(header));
+    }
+
+    /** A crafting recipe: {@code recipe planks: result 4 stick / shape "P" / key P oak_planks }. */
+    private Declaration parseRecipe(Line header) {
+        cursor++;
+        String name = tokenText(header, 1);
+        if (Strings.isBlank(name)) {
+            problem(Severity.ERROR, "recipe", "This recipe has no name",
+                header.first(), "Write the declaration as 'recipe <name>:'.",
+                List.of("recipe planks:"));
+            skipBlock(header.depth());
+            return null;
+        }
+        boolean shaped = false;
+        List<String> shape = new ArrayList<>();
+        Map<String, String> ingredients = new LinkedHashMap<>();
+        String resultMaterial = null;
+        int resultAmount = 1;
+
+        while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
+            Line line = lines.get(cursor);
+            switch (line.head()) {
+                case "result" -> {
+                    resultAmount = lineInt(line, 1, 1);
+                    resultMaterial = tokenText(line, 2);
+                    cursor++;
+                }
+                case "shape", "pattern" -> {
+                    shape.addAll(lineWords(line, 1));
+                    shaped = true;
+                    cursor++;
+                }
+                case "key", "ingredient" -> {
+                    String key = tokenText(line, 1);
+                    String material = tokenText(line, 2);
+                    if (!Strings.isBlank(key) && !Strings.isBlank(material)) {
+                        ingredients.put(key, material.toLowerCase(Locale.ROOT));
+                    }
+                    cursor++;
+                }
+                case "shapeless" -> {
+                    shaped = false;
+                    cursor++;
+                }
+                default -> {
+                    unknownProperty(line, "recipe", List.of("result", "shape", "key", "shapeless"));
+                    cursor++;
+                }
+            }
+        }
+        if (Strings.isBlank(resultMaterial)) {
+            problem(Severity.ERROR, "recipe", "Recipe '" + name + "' has no result",
+                header.first(), "Every recipe needs a result, for example 'result 4 stick'.",
+                List.of("result 4 stick"));
+            return null;
+        }
+        if (ingredients.isEmpty()) {
+            problem(Severity.ERROR, "recipe", "Recipe '" + name + "' has no ingredients",
+                header.first(), "Add at least one 'key <letter> <material>' line.",
+                List.of("key P oak_planks"));
+            return null;
+        }
+        for (String candidate : new ArrayList<>(ingredients.values())) {
+            if (!vocabulary.isMaterial(candidate)) {
+                problem(Severity.ERROR, "material", "Unknown item: " + candidate, header.first(),
+                    "The ingredient is not a Minecraft material name or a known alias.",
+                    vocabulary.materialSuggestions(candidate));
+                return null;
+            }
+        }
+        if (!vocabulary.isMaterial(resultMaterial)) {
+            problem(Severity.ERROR, "material", "Unknown item: " + resultMaterial, header.first(),
+                "The result is not a Minecraft material name or a known alias.",
+                vocabulary.materialSuggestions(resultMaterial));
+            return null;
+        }
+        return new Declaration.Recipe(name, shaped, shape, ingredients, resultMaterial.toLowerCase(Locale.ROOT),
+            Math.max(1, resultAmount), span(header));
+    }
+
+    /** A named cuboid region: {@code region spawn_area: world world from 0 0 0 to 100 100 100 }. */
+    private Declaration parseRegion(Line header) {
+        cursor++;
+        String name = tokenText(header, 1);
+        if (Strings.isBlank(name)) {
+            problem(Severity.ERROR, "region", "This region has no name",
+                header.first(), "Write the declaration as 'region <name>:'.",
+                List.of("region spawn_area:"));
+            skipBlock(header.depth());
+            return null;
+        }
+        String world = null;
+        Double[] first = null;
+        Double[] second = null;
+
+        while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
+            Line line = lines.get(cursor);
+            switch (line.head()) {
+                case "world" -> {
+                    world = tokenText(line, 1);
+                    cursor++;
+                }
+                case "from", "corner1", "min" -> {
+                    first = new Double[] {lineDouble(line, 1, 0), lineDouble(line, 2, 0), lineDouble(line, 3, 0)};
+                    cursor++;
+                }
+                case "to", "corner2", "max" -> {
+                    second = new Double[] {lineDouble(line, 1, 0), lineDouble(line, 2, 0), lineDouble(line, 3, 0)};
+                    cursor++;
+                }
+                case "bounds", "corners" -> {
+                    first = new Double[] {lineDouble(line, 1, 0), lineDouble(line, 2, 0), lineDouble(line, 3, 0)};
+                    second = new Double[] {lineDouble(line, 4, 0), lineDouble(line, 5, 0), lineDouble(line, 6, 0)};
+                    cursor++;
+                }
+                default -> {
+                    unknownProperty(line, "region", List.of("world", "from", "to", "bounds"));
+                    cursor++;
+                }
+            }
+        }
+        if (first == null || second == null) {
+            problem(Severity.ERROR, "region", "Region '" + name + "' needs two corners",
+                header.first(), "Declare the corners with 'from <x> <y> <z>' and 'to <x> <y> <z>'.",
+                List.of("from 0 0 0", "to 100 100 100"));
+            return null;
+        }
+        return new Declaration.Region(name, world, first[0], first[1], first[2], second[0], second[1], second[2],
+            span(header));
+    }
+
+    /** Reports an unknown keyword inside a gameplay block, naming the accepted ones. */
+    private void unknownProperty(Line line, String category, List<String> accepted) {
+        List<String> suggestions = new ArrayList<>();
+        String head = line.head();
+        for (String candidate : accepted) {
+            if (candidate.startsWith(head.substring(0, Math.min(head.length(), 3)))) suggestions.add(candidate);
+        }
+        problem(Severity.WARNING, category, "Unknown setting '" + head + "'",
+            line.first(), "A " + category + " block accepts: " + String.join(", ", accepted) + ".",
+            suggestions.isEmpty() ? accepted : suggestions);
+    }
+
+    // --------------------------------------------------------- value helpers
+
+    private static String tokenText(Line line, int index) {
+        List<Token> tokens = line.tokens();
+        return index >= 0 && index < tokens.size() ? tokens.get(index).text : null;
+    }
+
+    private static String lineText(Line line, int from) {
+        List<Token> tokens = line.tokens();
+        if (from >= tokens.size()) return "";
+        return joinText(tokens.subList(Math.max(0, from), tokens.size()));
+    }
+
+    private static List<String> lineWords(Line line, int from) {
+        List<String> words = new ArrayList<>();
+        List<Token> tokens = line.tokens();
+        for (int index = Math.max(0, from); index < tokens.size(); index++) {
+            Token token = tokens.get(index);
+            if (token.type == TokenType.COMMA) continue;
+            words.add(token.text.toLowerCase(Locale.ROOT));
+        }
+        return words;
+    }
+
+    private static int lineInt(Line line, int index, int fallback) {
+        String text = tokenText(line, index);
+        if (text == null) return fallback;
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException error) {
+            return fallback;
+        }
+    }
+
+    private static double lineDouble(Line line, int index, double fallback) {
+        String text = tokenText(line, index);
+        if (text == null) return fallback;
+        try {
+            return Double.parseDouble(text.trim());
+        } catch (NumberFormatException error) {
+            return fallback;
+        }
+    }
+
+    private static boolean lineBool(Line line, int index, boolean fallback) {
+        String text = tokenText(line, index);
+        if (text == null) return fallback;
+        return switch (text.toLowerCase(Locale.ROOT)) {
+            case "true", "yes", "on", "enabled" -> true;
+            case "false", "no", "off", "disabled" -> false;
+            default -> fallback;
+        };
     }
 
     // ------------------------------------------------------------- natural mode

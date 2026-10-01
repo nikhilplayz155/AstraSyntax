@@ -2,6 +2,9 @@ package io.astra.language.compiler;
 
 import io.astra.language.ast.Cond;
 import io.astra.language.ast.Declaration;
+import io.astra.runtime.item.ItemDefinition;
+import io.astra.runtime.recipe.RecipeDefinition;
+import io.astra.runtime.region.RegionDefinition;
 import io.astra.language.ast.Expr;
 import io.astra.language.ast.ScriptFile;
 import io.astra.language.ast.Span;
@@ -62,7 +65,39 @@ public final class AstraCompiler {
         // feature switch is off (see io.astra.config.FeatureFlags).
         Map.entry("give-money", "economy"),
         Map.entry("take-money", "economy"),
-        Map.entry("set-balance", "economy"));
+        Map.entry("set-balance", "economy"),
+        Map.entry("has-money", "economy"),
+        // GUI, scoreboards, bossbars, holograms, regions, NPCs, bosses and quests.
+        Map.entry("create-scoreboard", "scoreboards"),
+        Map.entry("set-scoreboard-line", "scoreboards"),
+        Map.entry("show-scoreboard", "scoreboards"),
+        Map.entry("hide-scoreboard", "scoreboards"),
+        Map.entry("remove-scoreboard", "scoreboards"),
+        Map.entry("create-bossbar", "bossbars"),
+        Map.entry("set-bossbar", "bossbars"),
+        Map.entry("show-bossbar", "bossbars"),
+        Map.entry("hide-bossbar", "bossbars"),
+        Map.entry("remove-bossbar", "bossbars"),
+        Map.entry("create-hologram", "holograms"),
+        Map.entry("set-hologram-text", "holograms"),
+        Map.entry("move-hologram", "holograms"),
+        Map.entry("remove-hologram", "holograms"),
+        Map.entry("open-menu", "gui"),
+        Map.entry("close-menu", "gui"),
+        Map.entry("spawn-npc", "npc"),
+        Map.entry("remove-npc", "npc"),
+        Map.entry("npc-say", "npc"),
+        Map.entry("spawn-boss", "bosses"),
+        Map.entry("set-mob-health", "custom-mobs"),
+        Map.entry("set-mob-name", "custom-mobs"),
+        Map.entry("make-mob-target", "custom-mobs"),
+        Map.entry("add-quest-progress", "quests"),
+        Map.entry("complete-quest", "quests"),
+        Map.entry("reset-quest", "quests"),
+        Map.entry("inside-region", "regions"),
+        Map.entry("quest-complete", "quests"),
+        Map.entry("quest-progress", "quests"),
+        Map.entry("region-at", "regions"));
 
     /** Trigger phrase prefixes that imply a feature flag. */
     private static final Map<String, String> TRIGGER_FEATURES = Map.of(
@@ -126,6 +161,10 @@ public final class AstraCompiler {
         private final List<CompiledFunction> compiledFunctions = new ArrayList<>();
         private final List<Declaration.Data> data = new ArrayList<>();
         private final List<CompiledScript.RuleSummary> summaries = new ArrayList<>();
+        private final List<ItemDefinition> items = new ArrayList<>();
+        private final List<io.astra.runtime.gui.MenuDefinition> menus = new ArrayList<>();
+        private final List<RecipeDefinition> recipes = new ArrayList<>();
+        private final List<RegionDefinition> regions = new ArrayList<>();
         private final Set<String> requiredFeatures = new LinkedHashSet<>();
         private final Set<String> warnedProperties = new LinkedHashSet<>();
 
@@ -172,6 +211,14 @@ public final class AstraCompiler {
                     compileFunction(function);
                 } else if (declaration instanceof Declaration.Command command) {
                     compileCommand(command);
+                } else if (declaration instanceof Declaration.CustomItem item) {
+                    compileCustomItem(item);
+                } else if (declaration instanceof Declaration.Menu menu) {
+                    compileMenu(menu);
+                } else if (declaration instanceof Declaration.Recipe recipe) {
+                    compileRecipe(recipe);
+                } else if (declaration instanceof Declaration.Region region) {
+                    compileRegion(region);
                 } else if (declaration instanceof Declaration.Data declared) {
                     data.add(declared);
                     if (!declared.persistent()) {
@@ -186,6 +233,123 @@ public final class AstraCompiler {
         // ------------------------------------------------------------------
         // declarations
         // ------------------------------------------------------------------
+
+        /** Records a config.yml feature switch this script depends on. */
+        private void feature(String name) {
+            requiredFeatures.add(name);
+        }
+
+        /** A custom item, validated here so a typo never reaches the runtime. */
+        private void compileCustomItem(Declaration.CustomItem declaration) {
+            feature("custom-items");
+            for (ItemDefinition existing : items) {
+                if (existing.name().equalsIgnoreCase(declaration.name())) {
+                    warn(declaration.span(), "Duplicate item '" + declaration.name() + "'",
+                        "An item with this name is already declared in this script.", List.of());
+                    break;
+                }
+            }
+            List<ItemDefinition.Enchant> enchants = new ArrayList<>();
+            for (Declaration.ItemEnchant enchant : declaration.enchants()) {
+                enchants.add(new ItemDefinition.Enchant(enchant.name(), enchant.level()));
+            }
+            items.add(new ItemDefinition(declaration.name(), declaration.material(), declaration.amount(),
+                declaration.displayName(), declaration.lore(), enchants, declaration.unbreakable(),
+                declaration.flags()));
+            List<String> details = new ArrayList<>();
+            details.add(declaration.amount() + " x " + declaration.material());
+            if (declaration.displayName() != null) details.add("name: " + declaration.displayName());
+            if (!declaration.lore().isEmpty()) details.add(declaration.lore().size() + " lore line(s)");
+            if (!enchants.isEmpty()) details.add(enchants.size() + " enchantment(s)");
+            summaries.add(new CompiledScript.RuleSummary(RuleKind.ITEM, "item " + declaration.name(), details,
+                false, declaration.span()));
+        }
+
+        /** A chest menu; each slot body is compiled exactly like a rule body. */
+        private void compileMenu(Declaration.Menu declaration) {
+            feature("gui");
+            List<io.astra.runtime.gui.MenuDefinition.Slot> slots = new ArrayList<>();
+            for (Declaration.MenuSlot slot : declaration.slots()) {
+                if (slot.index() < 0 || slot.index() >= 54) {
+                    error(slot.span(), "Slot " + slot.index() + " is outside the inventory",
+                        "A chest menu has slots 0 to 53.", List.of("Use a slot between 0 and 53."));
+                    continue;
+                }
+                if (slot.index() >= declaration.size()) {
+                    warn(slot.span(), "Slot " + slot.index() + " is outside this menu's size",
+                        "The menu declares " + declaration.size() + " slots ("
+                            + (declaration.size() / 9) + " rows).",
+                        List.of("Increase the menu size, or move the button to a lower slot."));
+                }
+                if (slot.body() == null || slot.body().isEmpty()) {
+                    warn(slot.span(), "Slot " + slot.index() + " has no actions",
+                        "Clicking it will close the menu without doing anything.",
+                        List.of("Add an action such as 'give player 1 diamond'."));
+                }
+                slots.add(new io.astra.runtime.gui.MenuDefinition.Slot(slot.index(), slot.material(),
+                    slot.displayName(), slot.lore(), block(slot.body()), slot.span()));
+            }
+            menus.add(new io.astra.runtime.gui.MenuDefinition(declaration.name(), declaration.title(),
+                declaration.size(), slots, file.name()));
+            summaries.add(new CompiledScript.RuleSummary(RuleKind.MENU, "menu " + declaration.name(),
+                List.of(declaration.size() + " slots, " + slots.size() + " button(s)"), false,
+                declaration.span()));
+        }
+
+        /** A crafting recipe; every shape character must have a key. */
+        private void compileRecipe(Declaration.Recipe declaration) {
+            feature("recipes");
+            if (declaration.shaped()) {
+                if (declaration.shape().size() > 3) {
+                    error(declaration.span(), "A recipe has at most three rows",
+                        "The shape has " + declaration.shape().size() + " rows.", List.of());
+                    return;
+                }
+                for (String row : declaration.shape()) {
+                    if (row.length() > 3) {
+                        error(declaration.span(), "A recipe row has at most three columns",
+                            "The row '" + row + "' has " + row.length() + " characters.", List.of());
+                        return;
+                    }
+                    for (char symbol : row.toCharArray()) {
+                        if (symbol == ' ') continue;
+                        if (!declaration.ingredients().containsKey(String.valueOf(symbol))) {
+                            error(declaration.span(), "The shape uses '" + symbol + "' but no key defines it",
+                                "Every character in the shape needs a 'key <letter> <material>' line.",
+                                List.of("key " + symbol + " diamond"));
+                            return;
+                        }
+                    }
+                }
+            }
+            recipes.add(new RecipeDefinition(declaration.name(), declaration.shaped(), declaration.shape(),
+                declaration.ingredients(), declaration.resultMaterial(), declaration.resultAmount()));
+            summaries.add(new CompiledScript.RuleSummary(RuleKind.RECIPE, "recipe " + declaration.name(),
+                List.of(declaration.resultAmount() + " x " + declaration.resultMaterial()
+                    + (declaration.shaped() ? " (shaped)" : " (shapeless)")), false, declaration.span()));
+        }
+
+        /** A named region; overlapping declarations with the same name are reported. */
+        private void compileRegion(Declaration.Region declaration) {
+            feature("regions");
+            RegionDefinition region = RegionDefinition.of(declaration.name(), declaration.world(),
+                declaration.x1(), declaration.y1(), declaration.z1(),
+                declaration.x2(), declaration.y2(), declaration.z2());
+            if (region.volume() <= 0) {
+                warn(declaration.span(), "Region '" + declaration.name() + "' is flat",
+                    "The two corners describe a region with no volume.", List.of());
+            }
+            for (RegionDefinition existing : regions) {
+                if (existing.name().equalsIgnoreCase(region.name())) {
+                    warn(declaration.span(), "Duplicate region '" + declaration.name() + "'",
+                        "A region with this name is already declared in this script.", List.of());
+                    break;
+                }
+            }
+            regions.add(region);
+            summaries.add(new CompiledScript.RuleSummary(RuleKind.REGION, "region " + declaration.name(),
+                List.of(region.describe()), false, declaration.span()));
+        }
 
         private void compileEvent(Declaration.Event declaration, boolean natural) {
             EventDefinition definition = registries.events().get(declaration.triggerId());
@@ -360,6 +524,7 @@ public final class AstraCompiler {
         private CompiledCondition condition(Cond condition) {
             if (condition instanceof Cond.Test test) {
                 ConditionDefinition definition = registries.conditions().get(test.id());
+                if (definition != null) featureForAction(definition.id());
                 if (definition == null) {
                     error(test.span(), "Unknown condition '" + test.id() + "'",
                         "'" + test.id() + "' is not a registered condition.",
@@ -535,7 +700,8 @@ public final class AstraCompiler {
 
         private CompiledScript build() {
             return new CompiledScript(file.name(), sourceHash, rules, commands, compiledFunctions, data, file,
-                summaries, List.copyOf(requiredFeatures), System.currentTimeMillis());
+                summaries, List.copyOf(requiredFeatures), System.currentTimeMillis(),
+                List.copyOf(items), List.copyOf(menus), List.copyOf(recipes), List.copyOf(regions));
         }
 
         private List<Diagnostic> filter(Severity severity) {

@@ -14,7 +14,13 @@ public enum RuleKind {
     /** A data threshold rule ("when they reach 100 coins"). */
     DATA_THRESHOLD,
     /** A GUI interaction rule. */
-    MENU;
+    MENU,
+    /** A custom item declaration. */
+    ITEM,
+    /** A crafting recipe declaration. */
+    RECIPE,
+    /** A named region declaration. */
+    REGION;
 
     public String label() {
         return name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');

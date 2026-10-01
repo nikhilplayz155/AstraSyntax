@@ -17,7 +17,11 @@ import java.util.List;
 public record CompiledScript(String name, String sourceHash, List<CompiledRule> rules,
                              List<CompiledCommand> commands, List<CompiledFunction> functions,
                              List<Declaration.Data> data, ScriptFile ast, List<RuleSummary> summaries,
-                             List<String> requiredFeatures, long compiledAtMillis) {
+                             List<String> requiredFeatures, long compiledAtMillis,
+                             List<io.astra.runtime.item.ItemDefinition> items,
+                             List<io.astra.runtime.gui.MenuDefinition> menus,
+                             List<io.astra.runtime.recipe.RecipeDefinition> recipes,
+                             List<io.astra.runtime.region.RegionDefinition> regions) {
 
     /**
      * Human readable summary of one rule, used by {@code /astra explain}.
@@ -42,6 +46,26 @@ public record CompiledScript(String name, String sourceHash, List<CompiledRule> 
         data = data == null ? List.of() : List.copyOf(data);
         summaries = summaries == null ? List.of() : List.copyOf(summaries);
         requiredFeatures = requiredFeatures == null ? List.of() : List.copyOf(requiredFeatures);
+        items = items == null ? List.of() : List.copyOf(items);
+        menus = menus == null ? List.of() : List.copyOf(menus);
+        recipes = recipes == null ? List.of() : List.copyOf(recipes);
+        regions = regions == null ? List.of() : List.copyOf(regions);
+    }
+
+    /** The custom item with this name, or {@code null}. */
+    public io.astra.runtime.item.ItemDefinition item(String name) {
+        for (io.astra.runtime.item.ItemDefinition item : items) {
+            if (item.name().equalsIgnoreCase(name)) return item;
+        }
+        return null;
+    }
+
+    /** The menu with this name, or {@code null}. */
+    public io.astra.runtime.gui.MenuDefinition menu(String name) {
+        for (io.astra.runtime.gui.MenuDefinition menu : menus) {
+            if (menu.name().equalsIgnoreCase(name)) return menu;
+        }
+        return null;
     }
 
     /** Every trigger id referenced by this script's event rules. */
@@ -54,7 +78,8 @@ public record CompiledScript(String name, String sourceHash, List<CompiledRule> 
     }
 
     public boolean isEmpty() {
-        return rules.isEmpty() && commands.isEmpty() && functions.isEmpty();
+        return rules.isEmpty() && commands.isEmpty() && functions.isEmpty()
+            && items.isEmpty() && menus.isEmpty() && recipes.isEmpty() && regions.isEmpty();
     }
 
     /** Total executable rule count (events + timers + commands + functions). */
