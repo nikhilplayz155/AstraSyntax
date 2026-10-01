@@ -58,6 +58,14 @@ public interface RuntimeServices {
         return null;
     }
 
+    /**
+     * The gameplay services (items, menus, recipes, regions, quests, scoreboards, boss
+     * bars, holograms, NPCs), or {@code null} in a runtime without them.
+     */
+    default GameplayServices gameplay() {
+        return null;
+    }
+
     /** Outbound HTTP with {@code security.yml} enforced, or {@code null} when disabled. */
     default HttpService http() {
         return null;

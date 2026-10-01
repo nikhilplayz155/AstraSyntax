@@ -110,6 +110,18 @@ public final class NpcService {
         }
     }
 
+    /**
+     * Adopts an entity a script created elsewhere (a boss, a custom mob).
+     *
+     * <p>Tracking is what makes the entity script-owned: it is removed again when the
+     * script unloads or reloads, which is the difference between a boss fight and a boss
+     * that keeps walking around after its script is gone.</p>
+     */
+    public void track(String script, String name, Entity entity) {
+        if (entity == null || name == null || name.isBlank()) return;
+        npcs.put(key(name), new Entry(script == null ? "" : script, entity));
+    }
+
     /** The entity behind a named NPC, or {@code null}. */
     public Entity entity(String name) {
         Entry entry = npcs.get(key(name));

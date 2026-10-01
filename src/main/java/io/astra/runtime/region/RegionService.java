@@ -76,6 +76,18 @@ public final class RegionService {
         return found;
     }
 
+    /** Resolves a set of region names to definitions, smallest first. */
+    public List<RegionDefinition> regionsAtByName(Collection<String> names) {
+        List<RegionDefinition> out = new ArrayList<>();
+        if (names == null) return out;
+        for (String name : names) {
+            RegionDefinition region = get(name);
+            if (region != null) out.add(region);
+        }
+        out.sort((first, second) -> Double.compare(first.volume(), second.volume()));
+        return out;
+    }
+
     /** The smallest declared region containing the point, or {@code null}. */
     public RegionDefinition regionAt(String world, double x, double y, double z) {
         List<RegionDefinition> found = regionsAt(world, x, y, z);

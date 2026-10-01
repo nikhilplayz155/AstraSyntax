@@ -152,6 +152,18 @@ public final class ScoreboardService {
         return true;
     }
 
+    /** Removes a board entirely, restoring the main scoreboard for its viewers. */
+    public boolean remove(String name) {
+        BoardDefinition definition = definitions.remove(key(name));
+        if (definition == null) return false;
+        for (Map.Entry<UUID, String> entry : new ArrayList<>(shown.entrySet())) {
+            if (!entry.getValue().equals(key(name))) continue;
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player != null) hide(player);
+        }
+        return true;
+    }
+
     // ------------------------------------------------------------------ display
 
     /** Shows a board to a player. Returns false when no such board exists. */
