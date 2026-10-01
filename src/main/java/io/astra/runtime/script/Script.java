@@ -18,7 +18,7 @@ import java.util.List;
 public final class Script {
 
     private final String name;
-    private final Path path;
+    private volatile Path path;
     private final ScriptStats stats = new ScriptStats();
     private final long discoveredAtMillis = System.currentTimeMillis();
 
@@ -45,6 +45,11 @@ public final class Script {
 
     public Path path() {
         return path;
+    }
+
+    /** Point the script at a file when it was created before the file was located. */
+    public void setPathIfAbsent(Path file) {
+        if (file != null && path == null) this.path = file;
     }
 
     public ScriptState state() {

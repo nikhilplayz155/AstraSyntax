@@ -32,21 +32,23 @@ import org.bukkit.plugin.PluginManager;
  *       change - which is also what lets modules contribute triggers.</li>
  * </ul>
  *
- * <p>Dispatch is delegated to a {@link Dispatcher} so the bus stays independent of the
- * script manager, and so the compiler/executor can be tested with a stub dispatcher.</p>
+ * <p>Several definitions can share one Bukkit event class ({@code player death} and
+ * {@code entity death} both come from {@code EntityDeathEvent}), so the bus keeps a list
+ * per class and hands every definition to the dispatcher. Dispatching only the first one
+ * would silently drop half the rules.</p>
  */
 public final class EventBus implements Listener {
 
     /** What to do when an event fires: find the rules and run them. */
     public interface Dispatcher {
-        void dispatch(Event event, EventDefinition definition);
+        void dispatch(Event event, List<EventDefinition> definitions);
     }
 
     private final PluginManager pluginManager;
     private final AstraLogger logger;
     private final Dispatcher dispatcher;
     private final Plugin plugin;
-    private final Map<Class<? extends Event>, EventDefinition> registered = new HashMap<>();
+    private final Map<Class<? extends Event>, List<EventDefinition>> registered = new HashMap<>();
     private final Map<Class<? extends Event>, Listener> listeners = new HashMap<>();
     private final Map<Class<? extends Event>, AtomicLong> counters = new HashMap<>();
 
@@ -65,18 +67,14 @@ public final class EventBus implements Listener {
      * event class gets its own marker listener instance, only affects that one event.</p>
      */
     public synchronized void refresh(List<EventDefinition> definitions) {
-        Set<Class<? extends Event>> wanted = new HashSet<>();
-        Map<Class<? extends Event>, EventDefinition> wantedByClass = new HashMap<>();
+        Map<Class<? extends Event>, List<EventDefinition>> wanted = new HashMap<>();
         for (EventDefinition definition : definitions) {
-            wanted.add(definition.eventClass());
-            // The first definition registered for a class defines the listener priority;
-            // rules carry their own priority and are ordered by the dispatcher.
-            wantedByClass.putIfAbsent(definition.eventClass(), definition);
+            wanted.computeIfAbsent(definition.eventClass(), key -> new ArrayList<>()).add(definition);
         }
 
         List<Class<? extends Event>> removed = new ArrayList<>();
         for (Class<? extends Event> existing : registered.keySet()) {
-            if (!wanted.contains(existing)) removed.add(existing);
+            if (!wanted.containsKey(existing)) removed.add(existing);
         }
         for (Class<? extends Event> eventClass : removed) {
             Listener listener = listeners.remove(eventClass);
@@ -86,14 +84,18 @@ public final class EventBus implements Listener {
             logger.debug(() -> "Stopped listening for " + eventClass.getSimpleName());
         }
 
-        for (EventDefinition definition : wantedByClass.values()) {
-            Class<? extends Event> eventClass = definition.eventClass();
-            if (registered.containsKey(eventClass)) continue;
+        for (Map.Entry<Class<? extends Event>, List<EventDefinition>> entry : wanted.entrySet()) {
+            Class<? extends Event> eventClass = entry.getKey();
+            List<EventDefinition> wantedDefinitions = entry.getValue();
+            if (registered.containsKey(eventClass)) {
+                registered.put(eventClass, List.copyOf(wantedDefinitions));
+                continue;
+            }
             Listener marker = new Listener() { };
             try {
                 pluginManager.registerEvent(eventClass, marker, EventPriority.NORMAL,
                     (listener, event) -> dispatch(event), plugin);
-                registered.put(eventClass, definition);
+                registered.put(eventClass, List.copyOf(wantedDefinitions));
                 listeners.put(eventClass, marker);
                 counters.put(eventClass, new AtomicLong());
                 logger.debug(() -> "Listening for " + eventClass.getSimpleName());
@@ -105,24 +107,26 @@ public final class EventBus implements Listener {
     }
 
     private void dispatch(Event event) {
-        EventDefinition definition = registered.get(event.getClass());
-        if (definition == null) {
+        List<EventDefinition> definitions = registered.get(event.getClass());
+        if (definitions == null) {
             // A subclass of a registered event type (for example a plugin's own subclass).
-            for (Map.Entry<Class<? extends Event>, EventDefinition> entry : registered.entrySet()) {
+            for (Map.Entry<Class<? extends Event>, List<EventDefinition>> entry : registered.entrySet()) {
                 if (entry.getKey().isAssignableFrom(event.getClass())) {
-                    definition = entry.getValue();
+                    definitions = entry.getValue();
                     break;
                 }
             }
         }
-        if (definition == null) return;
-        AtomicLong counter = counters.get(definition.eventClass());
-        if (counter != null) counter.incrementAndGet();
+        if (definitions == null || definitions.isEmpty()) return;
+        for (EventDefinition definition : definitions) {
+            AtomicLong counter = counters.get(definition.eventClass());
+            if (counter != null) counter.incrementAndGet();
+        }
         try {
-            dispatcher.dispatch(event, definition);
+            dispatcher.dispatch(event, definitions);
         } catch (Throwable error) {
             // A failing rule must never break the server's event pipeline.
-            logger.error("Trigger '" + definition.id() + "' failed: " + logger.describe(error));
+            logger.error("An event trigger failed: " + logger.describe(error));
         }
     }
 
@@ -137,10 +141,35 @@ public final class EventBus implements Listener {
         return Set.copyOf(registered.keySet());
     }
 
+    /** Every definition currently registered for an event class. */
+    public synchronized List<EventDefinition> definitionsFor(Class<? extends Event> eventClass) {
+        List<EventDefinition> definitions = registered.get(eventClass);
+        return definitions == null ? List.of() : List.copyOf(definitions);
+    }
+
     /** Total number of seen events. */
     public long totalEvents() {
         long total = 0;
         for (AtomicLong counter : counters.values()) total += counter.get();
         return total;
+    }
+
+    /** Remove every listener (shutdown). */
+    public synchronized void unregisterAll() {
+        for (Listener listener : listeners.values()) {
+            HandlerList.unregisterAll(listener);
+        }
+        listeners.clear();
+        registered.clear();
+        counters.clear();
+    }
+
+    /** Distinct trigger ids the bus is currently listening for. */
+    public synchronized Set<String> triggerIds() {
+        Set<String> ids = new HashSet<>();
+        for (List<EventDefinition> definitions : registered.values()) {
+            for (EventDefinition definition : definitions) ids.add(definition.id());
+        }
+        return ids;
     }
 }
