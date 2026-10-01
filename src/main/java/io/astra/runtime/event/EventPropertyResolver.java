@@ -31,6 +31,7 @@ public final class EventPropertyResolver {
         "block", "block type", "material", "entity", "entity type", "killer", "victim", "damage", "damage cause",
         "final damage", "message", "slot", "item", "amount", "item amount", "item material", "item name",
         "canceled", "cancelled", "reason", "command", "projectile", "source", "menu", "button", "sender",
+        "region", "previous region", "npc",
         "world", "exp to drop", "x", "y", "z", "location",
         "killer is player", "victim is player", "entity is player"));
 
@@ -74,6 +75,30 @@ public final class EventPropertyResolver {
             }
             default:
                 break;
+        }
+
+        // Gameplay properties: the region a crossing happened in, and whether the
+        // entity an interaction targeted is an Astra NPC.
+        if (event instanceof io.astra.runtime.region.RegionEvents.Transition crossing) {
+            switch (key) {
+                case "region":
+                    return Value.str(crossing.regionName());
+                case "previous region": {
+                    var previous = crossing.previous();
+                    return previous == null ? Value.NULL : Value.str(previous.name());
+                }
+                default:
+                    break;
+            }
+        }
+        if ("npc".equals(key)) {
+            var gameplay = context.services() == null ? null : context.services().gameplay();
+            var target = context.secondary() != null ? context.secondary() : context.actor();
+            if (gameplay != null && gameplay.npcs() != null && target != null) {
+                String name = gameplay.npcs().nameOf(target);
+                return name == null ? Value.NULL : Value.str(name);
+            }
+            return Value.NULL;
         }
 
         if (event instanceof BlockEvent blockEvent) {

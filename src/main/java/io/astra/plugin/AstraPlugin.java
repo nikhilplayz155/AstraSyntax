@@ -90,6 +90,7 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
     private volatile boolean shuttingDown;
     private LibLoader.Loaded libLoader;
     private volatile io.astra.runtime.net.HttpService httpService;
+    private io.astra.runtime.GameplayServices gameplay;
 
     /** Outbound HTTP timeout. {@code security.yml} caps the size, not the duration. */
     private static final long HTTP_TIMEOUT_MILLIS = 10_000L;
@@ -135,8 +136,15 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
         data.storage().migrate();
         installCorePlaceholders();
 
+        // The gameplay services own everything scripts put into the world. They are built
+        // after storage (quests live in the data store) and before the executor, because
+        // the menu listener runs button bodies through that executor.
+        gameplay = createGameplay();
         tasks = new TaskRegistry(logger);
         executor = new RuleExecutor(this, tasks);
+        gameplay.menus().wire(executor, name -> scripts == null ? null : scripts.script(name));
+        gameplay.regionTracker().start(this);
+        gameplay.menus().start();
         eventBus = new EventBus(getServer().getPluginManager(), this, logger, (event, definitions) -> {
             ScriptManager manager = scripts;
             if (manager != null) manager.dispatch(event, definitions);
@@ -177,6 +185,7 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
     public void onDisable() {
         shuttingDown = true;
         if (scripts != null) scripts.shutdown();
+        if (gameplay != null) gameplay.shutdown();
         if (dynamicCommands != null) dynamicCommands.unregisterAll();
         if (modules != null) modules.shutdown();
         if (integrations != null) integrations.shutdown();
@@ -215,6 +224,28 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
             default -> SqlStorage.sqlite(getDataFolder().toPath().resolve(storageSettings.storage().sqlite().file()),
                 logger);
         };
+    }
+
+    @Override
+    public io.astra.runtime.GameplayServices gameplay() {
+        return gameplay;
+    }
+
+    /** Builds the gameplay services. Every one of them is inert until a script uses it. */
+    private io.astra.runtime.GameplayServices createGameplay() {
+        io.astra.runtime.item.ItemService items = new io.astra.runtime.item.ItemService(logger, text);
+        io.astra.runtime.region.RegionService regions = new io.astra.runtime.region.RegionService(logger);
+        return new io.astra.runtime.GameplayServices(
+            items,
+            new io.astra.runtime.recipe.RecipeService(items, logger),
+            regions,
+            new io.astra.runtime.region.RegionTracker(regions, logger),
+            new io.astra.runtime.quest.QuestService(data),
+            new io.astra.runtime.board.ScoreboardService(text, logger),
+            new io.astra.runtime.board.BossBarService(text, logger),
+            new io.astra.runtime.display.HologramService(text, logger),
+            new io.astra.runtime.gui.MenuService(this, items, text, logger),
+            new io.astra.runtime.npc.NpcService(text, logger));
     }
 
     @Override

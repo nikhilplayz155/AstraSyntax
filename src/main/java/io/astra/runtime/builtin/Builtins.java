@@ -35,7 +35,12 @@ public final class Builtins {
     private Builtins() {
     }
 
-    /** Create a fully populated registry set. */
+    /** Create a fully populated registry set.
+     *
+     * <p>The gameplay catalogue is registered here like any other built-in. It needs no
+     * services at registration time because every gameplay action looks them up from the
+     * executing context instead, which is what keeps a registry a plain lookup table.</p>
+     */
     public static Registries create() {
         EventRegistry events = new EventRegistry();
         ActionRegistry actions = new ActionRegistry();
@@ -50,6 +55,13 @@ public final class Builtins {
         BuiltinExpressions.registerAll(expressions);
         BuiltinEconomy.registerAll(actions, conditions, expressions);
         BuiltinNetwork.registerAll(actions);
+        // The gameplay catalogue is registered with the services it drives. Its triggers
+        // are always registered: a script that never uses them costs nothing, because the
+        // event bus only attaches listeners for triggers the loaded scripts actually name.
+        BuiltinGameplay.registerTriggers(events);
+        BuiltinGameplay.registerActions(actions);
+        BuiltinGameplay.registerConditions(conditions);
+        BuiltinGameplay.registerExpressions(expressions);
         registerPlaceholders(placeholders);
 
         // Documentation is derived, never hand-maintained: every registered element

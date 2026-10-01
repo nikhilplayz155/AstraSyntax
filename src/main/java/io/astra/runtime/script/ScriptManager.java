@@ -390,6 +390,37 @@ public final class ScriptManager implements EventBus.Dispatcher {
         return warnings;
     }
 
+    /**
+     * Hands a script's gameplay declarations to the services that own them.
+     *
+     * <p>Items, menus, recipes and regions are compiled once and registered here, never
+     * resolved lazily at event time. That is what lets {@code item legendary_sword:} be a
+     * typo-checked declaration and what makes a reload atomic: the new definitions replace
+     * the old ones only after the script has compiled cleanly.</p>
+     */
+    private void registerGameplay(Script script, CompiledScript compiled) {
+        io.astra.runtime.GameplayServices gameplay = services.gameplay();
+        if (gameplay == null) return;
+        String name = script.name();
+        // Any previous version's definitions are dropped first so a reload cannot leave
+        // an orphaned item, menu or recipe behind.
+        gameplay.unregisterAll(name);
+        // Name clashes are reported before the new definitions overwrite the old ones.
+        if (!compiled.menus().isEmpty() && gameplay.menus() != null) {
+            for (var menu : compiled.menus()) {
+                String other = gameplay.menus().scriptOf(menu.name());
+                if (!other.isEmpty() && !other.equalsIgnoreCase(name)) {
+                    logger.warn("Menu '" + menu.name() + "' is declared by both '" + other + "' and '"
+                        + name + "'; the last one loaded wins");
+                }
+            }
+        }
+        if (gameplay.items() != null) gameplay.items().registerAll(name, compiled.items());
+        if (gameplay.menus() != null) gameplay.menus().registerAll(name, compiled.menus());
+        if (gameplay.recipes() != null) gameplay.recipes().registerAll(name, compiled.recipes());
+        if (gameplay.regions() != null) gameplay.regions().registerAll(name, compiled.regions());
+    }
+
     private String fileNameFor(String name) {
         String extension = services.config().main().scripts().fileExtension();
         return name + (Strings.isBlank(extension) ? ".ar" : extension);
@@ -415,6 +446,7 @@ public final class ScriptManager implements EventBus.Dispatcher {
             commands.registerAll(script, compiled.commands());
         }
         scheduleTimers(script, compiled);
+        registerGameplay(script, compiled);
         enabled.add(script.name());
         script.setState(ScriptState.ENABLED);
         refreshEventBus();
@@ -466,6 +498,7 @@ public final class ScriptManager implements EventBus.Dispatcher {
         int cancelled = tasks.cancelAll(script.name());
         if (cancelled > 0) logger.debug("Cancelled " + cancelled + " task(s) of '" + script.name() + "'");
         if (commands != null) commands.unregisterScript(script.name());
+        if (services.gameplay() != null) services.gameplay().unregisterAll(script.name());
         enabled.remove(script.name());
     }
 
@@ -542,6 +575,11 @@ public final class ScriptManager implements EventBus.Dispatcher {
         }
         rulesByTrigger.clear();
         rulesByTrigger.putAll(index);
+        // The region tracker is dormant unless something actually listens for a crossing.
+        io.astra.runtime.GameplayServices gameplay = services.gameplay();
+        if (gameplay != null && gameplay.regionTracker() != null) {
+            gameplay.regionTracker().setActive(index.containsKey("region enter") || index.containsKey("region leave"));
+        }
         if (services.events() != null) {
             services.events().refresh(definitions);
         }
