@@ -247,6 +247,7 @@ public final class ScriptManager implements EventBus.Dispatcher {
         CompilationResult result = compile(name, source);
         script.setDiagnostics(result.errors().isEmpty() ? result.warnings() : result.errors());
         if (!result.success()) {
+            logDiagnostics(result.errors(), source);
             script.setState(previousState.holdsResources() ? previousState : ScriptState.ERROR);
             String message = "Script '" + name + "' has " + result.errors().size() + " error(s); "
                 + (script.active() == null ? "it was not loaded" : "the previous version stays active");
@@ -322,6 +323,26 @@ public final class ScriptManager implements EventBus.Dispatcher {
         }
         if (cacheEnabled) compileCache.put(name, new CachedCompile(hash, result));
         return result;
+    }
+
+    /**
+     * Writes the diagnostics of a failed load to the log.
+     *
+     * <p>With {@code logging.include-script-source: true} (the default) the source line,
+     * a caret and the suggestions are logged, so an author sees the same context in
+     * {@code logs/latest.log} as in {@code /astra errors}. With it switched off only the
+     * compact {@code [ERROR] category: message (file:line)} form is written.</p>
+     */
+    private void logDiagnostics(List<Diagnostic> diagnostics, String source) {
+        if (diagnostics.isEmpty()) return;
+        if (logger.includeScriptSource()) {
+            logger.warn(new io.astra.language.diagnostics.DiagnosticRenderer(true, true)
+                .renderAll(diagnostics, source));
+        } else {
+            for (Diagnostic diagnostic : diagnostics) {
+                logger.warn(io.astra.language.diagnostics.DiagnosticRenderer.compact(diagnostic));
+            }
+        }
     }
 
     /**

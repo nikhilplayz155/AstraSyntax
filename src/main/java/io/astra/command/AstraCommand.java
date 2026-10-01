@@ -312,12 +312,55 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
                 break;
             }
             String colour = diagnostic.isError() ? "red" : "yellow";
-            reply(sender, "<dark_gray>   " + diagnostic.position() + " <" + colour + ">"
+            reply(sender, "<dark_gray>   " + diagnostic.position() + " [" + diagnostic.category() + "] <" + colour + ">"
                 + diagnostic.message() + "</" + colour + ">"
                 + (diagnostic.explanation().isEmpty() ? "" : " <gray>- " + diagnostic.explanation() + "</gray>")
                 + (diagnostic.suggestions().isEmpty() ? ""
                     : " <gray>(did you mean " + String.join(", ", diagnostic.suggestions()) + "?)</gray>"));
+            printSourceExcerpt(sender, diagnostic);
         }
+    }
+
+    /**
+     * Shows the offending line with a caret, plus the ready-to-copy corrected line.
+     *
+     * <p>Diagnostics are the main way an author learns the language, so the command output
+     * carries the same context the console does: the exact source line, where on it the
+     * problem is, and - when the compiler could work it out - the fixed line.</p>
+     */
+    private void printSourceExcerpt(CommandSender sender, Diagnostic diagnostic) {
+        String source = sourceOf(diagnostic);
+        String line = io.astra.language.diagnostics.DiagnosticRenderer.sourceLine(source, diagnostic.line());
+        if (line != null && !line.isBlank()) {
+            reply(sender, "<dark_gray>      | " + escape(line) + "</dark_gray>");
+            if (diagnostic.column() > 0) {
+                int pad = Math.max(0, diagnostic.column() - 1);
+                int width = Math.max(1, Math.min(diagnostic.length(), Math.max(1, line.length() - pad)));
+                reply(sender, "<dark_gray>      | " + " ".repeat(Math.min(pad, line.length()))
+                    + "<red>" + "^".repeat(width) + "</red></dark_gray>");
+            }
+        }
+        if (!diagnostic.fixedLine().isEmpty()) {
+            reply(sender, "<dark_gray>      suggested: <green>" + escape(diagnostic.fixedLine())
+                + "</green></dark_gray>");
+        }
+    }
+
+    /** The source text a diagnostic points at, when that script is loaded. */
+    private String sourceOf(Diagnostic diagnostic) {
+        for (var script : astra.scripts().scripts()) {
+            String fileName = script.path() == null ? "" : script.path().getFileName().toString();
+            if (fileName.equals(diagnostic.file()) || script.name().equals(io.astra.util.FileUtil.baseName(
+                java.nio.file.Path.of(diagnostic.file())))) {
+                return script.source();
+            }
+        }
+        return null;
+    }
+
+    /** Keeps MiniMessage from interpreting angle brackets that came from script source. */
+    private static String escape(String text) {
+        return text.replace("<", "\\<");
     }
 
     private void help(CommandSender sender, String label) {

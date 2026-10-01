@@ -262,13 +262,32 @@ Rules of the road:
 
 ## 6. Diagnostics
 
-Every problem reports file, line, column, category, explanation and suggestion:
+Every problem reports file, line, column, category, explanation and suggestion — in the
+console log and in `/astra errors` alike:
 
 ```
-[ERROR] <test.ar>:2:10 Unknown item: dimonds (did you mean diamonds?)
-        The item name is not a Minecraft material or a known alias.
-        Try "diamonds".
+AstraSyntax Error
+File: welcome.ar
+Line: 2
+
+        give player 5 dimonds
+                     ^^^^^^^
+
+Unknown item: dimonds
+
+The item name is not a Minecraft material or a known alias.
+
+Did you mean:
+    diamonds
+
+Suggested:
+        give player 5 diamonds
 ```
+
+In game the same information is printed with the source excerpt and the caret under the
+offending token, plus the ready-to-copy corrected line. `logging.include-script-source:
+false` switches the console back to the compact `[ERROR] material: Unknown item: dimonds
+(welcome.ar:2:18)` form.
 
 The same diagnostics feed `/astra check`, `/astra errors` and `/astra explain`. A reload
 that fails compilation **keeps the previous working version** of the script running.
@@ -368,7 +387,7 @@ runtime behaviour has **not** been exercised on a live Folia server here (see
 ## 11. Build with Gradle
 
 ```bash
-gradle clean build            # compiles, runs the 41 tests, writes build/libs/AstraSyntax-1.21.11-26.2.jar
+gradle clean build            # compiles, runs the 46 tests, writes build/libs/AstraSyntax-1.21.11-26.2.jar
 gradle test                   # tests only
 gradle processResources       # regenerates plugin.yml + astra/lib/*.jar staging
 ```
@@ -391,7 +410,7 @@ Artifact: **`build/libs/AstraSyntax-1.21.11-26.2.jar`**.
 ## 12. Build with Maven
 
 ```bash
-mvn -B clean package          # compiles, runs the 41 tests, writes target/AstraSyntax-1.21.11-26.2.jar
+mvn -B clean package          # compiles, runs the 46 tests, writes target/AstraSyntax-1.21.11-26.2.jar
 mvn -B test                   # tests only
 mvn -B dependency:copy-dependencies -DincludeScope=runtime   # fetch the drivers by hand if needed
 ```
@@ -457,7 +476,7 @@ gradle test          # Gradle
 tools/run-tests.sh   # offline fallback
 ```
 
-The suite (41 tests, JUnit 5) covers:
+The suite (46 tests, JUnit 5) covers:
 
 | Test | What it locks down |
 |---|---|
@@ -469,6 +488,7 @@ The suite (41 tests, JUnit 5) covers:
 | `EconomyTest` | affordability, deposit/withdraw maths behind `set`, "no provider" never looks like a zero balance |
 | `HttpServiceTest` | security gate before the request, response-size cap, timeouts, webhook JSON, credential redaction |
 | `LibLoaderTest` | nested driver extraction with SHA-256 reuse, unsafe entry names rejected, and a real SQLite connection opened through the isolated driver |
+| `DiagnosticRendererTest` | the rendered diagnostic carries file, line, column, source excerpt, caret at the right column, explanation, suggestion and the corrected line; suggestions can be suppressed |
 | `PackagingTest` | `plugin.yml` declares the real main class, `api-version`, `folia-supported` and every documented subcommand; the nine configs and five examples are on the class path under the exact names the loader reads; security defaults stay opt-in |
 
 ---
@@ -506,9 +526,9 @@ Everything below was executed in this checkout. Commands are given so they can b
 |---|---|
 | Main sources compile (release 21) | **exit 0, 0 errors** — `tools/build-jar.sh`, and the same file set with the Eclipse batch compiler |
 | Test sources compile | **exit 0, 0 errors** |
-| Test suite | **41 of 41 pass** — `tools/run-tests.sh` |
+| Test suite | **46 of 46 pass** — `tools/run-tests.sh` |
 | Natural-language audit | 17 of 19 probe sentences compile into rules with real bodies; the 2 unsupported ones produce a diagnostic with suggestions (by design) |
-| JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 306 entries (288 classes), 17,225,140 bytes, `sha256 626bfe4a5c3e05603bdb910d1dbb5fcb37b5738cee6d490867cedbea5b1ef098`, and the packaging is deterministic (two runs produce the same bytes) — rebuild any time with `tools/build-jar.sh` |
+| JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 306 entries (288 classes), 17,226,018 bytes, `sha256 dd462a07aa560ebf29d12dc168ca8f39e66727f940b67693879c3ca020e19fa3`, and the packaging is deterministic (two runs produce the same bytes) — rebuild any time with `tools/build-jar.sh` |
 | JAR integrity | `zipfile.testzip()` → no corrupt entry; main class, `LibLoader`, resources and both nested drivers present |
 | Reproducible packaging | `tools/build-jar.sh` writes fixed timestamps and sorted entries: two consecutive builds produced the same sha256 |
 | `plugin.yml` and the nine configs | parsed with a real YAML parser: `name`, `version` (expanded from `${project.version}`), `main: io.astra.plugin.AstraPlugin`, `api-version: 1.21`, `folia-supported: true`, 13 permissions and 11 documented subcommands; the configs inside the jar are byte-identical to the supplied files (SHA-256 compared) |
