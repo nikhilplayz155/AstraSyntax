@@ -508,8 +508,9 @@ Everything below was executed in this checkout. Commands are given so they can b
 | Test sources compile | **exit 0, 0 errors** |
 | Test suite | **41 of 41 pass** — `tools/run-tests.sh` |
 | Natural-language audit | 17 of 19 probe sentences compile into rules with real bodies; the 2 unsupported ones produce a diagnostic with suggestions (by design) |
-| JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 306 entries (288 classes), 17,225,220 bytes, `sha256 ce0511c5c663d9f30c192c0b0dfad355acdd4c1b1f30e10b61b523a26613af5d` — rebuild any time with `tools/build-jar.sh` |
+| JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 306 entries (288 classes), 17,225,140 bytes, `sha256 626bfe4a5c3e05603bdb910d1dbb5fcb37b5738cee6d490867cedbea5b1ef098`, and the packaging is deterministic (two runs produce the same bytes) — rebuild any time with `tools/build-jar.sh` |
 | JAR integrity | `zipfile.testzip()` → no corrupt entry; main class, `LibLoader`, resources and both nested drivers present |
+| Reproducible packaging | `tools/build-jar.sh` writes fixed timestamps and sorted entries: two consecutive builds produced the same sha256 |
 | `plugin.yml` and the nine configs | parsed with a real YAML parser: `name`, `version` (expanded from `${project.version}`), `main: io.astra.plugin.AstraPlugin`, `api-version: 1.21`, `folia-supported: true`, 13 permissions and 11 documented subcommands; the configs inside the jar are byte-identical to the supplied files (SHA-256 compared) |
 | Driver loading | real SQLite connection opened through `LibLoader`'s extracted jar + `DriverShim` (unit test) |
 | Security enforcement | HTTP/domain/size/timeout denials covered by unit tests against a local HTTP server |

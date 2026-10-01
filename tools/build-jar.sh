@@ -73,7 +73,19 @@ echo "[4/4] packaging $DIST"
 mkdir -p dist
 python3 - "$DIST" "$OUT_CLASSES" "$VERSION" <<'PY'
 import hashlib, pathlib, sys, zipfile
+
 target, classes, version = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+
+# Fixed timestamp + sorted entries + fixed permissions: two builds from the same
+# sources produce the same jar, byte for byte (the sha256 below is reproducible).
+STAMP = (2026, 1, 1, 0, 0, 0)
+
+def write(jar, name, data):
+    info = zipfile.ZipInfo(name, date_time=STAMP)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    jar.writestr(info, data)
+
 manifest = "\r\n".join([
     'Manifest-Version: 1.0',
     'Implementation-Title: AstraSyntax',
@@ -85,9 +97,9 @@ manifest = "\r\n".join([
 ]).encode('utf-8')
 files = sorted(p for p in classes.rglob('*') if p.is_file())
 with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as jar:
-    jar.writestr(zipfile.ZipInfo('META-INF/MANIFEST.MF'), manifest)
+    write(jar, 'META-INF/MANIFEST.MF', manifest)
     for path in files:
-        jar.write(path, path.relative_to(classes).as_posix())
+        write(jar, path.relative_to(classes).as_posix(), path.read_bytes())
 digest = hashlib.sha256(target.read_bytes()).hexdigest()
 print(f"    {target}: {len(files)} entries, {target.stat().st_size} bytes")
 print(f"    sha256 {digest}")
