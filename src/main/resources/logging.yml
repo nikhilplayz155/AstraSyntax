@@ -1,0 +1,13 @@
+logging:
+  level: INFO
+  console: true
+  file: true
+  file-path: logs/astra.log
+
+errors:
+  separate-file: true
+  file-path: logs/errors.log
+
+debug:
+  include-stack-traces: false
+  include-script-source: true

@@ -136,9 +136,11 @@ public final class SqlStorage implements Storage {
         try {
             if (driverClass != null) {
                 try {
-                    Class.forName(driverClass);
-                } catch (ClassNotFoundException missing) {
-                    // DriverManager may still resolve it through the service loader.
+                    // Prefer the isolated loader that LibLoader created for the jars
+                    // bundled under astra/lib, then fall back to the plugin class path.
+                    LibLoader.loadDriverClass(driverClass, getClass().getClassLoader());
+                } catch (ClassNotFoundException | LinkageError missing) {
+                    // DriverManager may still resolve it through a registered driver.
                     logger.debug("JDBC driver " + driverClass + " is not loaded yet; "
                         + "DriverManager will try the registered drivers");
                 }

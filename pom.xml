@@ -43,8 +43,8 @@
         <!-- Dependency versions. See README.md "Dependencies" for the rationale
              and the licence of every artifact. -->
         <spigot.api.version>1.21-R0.1-SNAPSHOT</spigot.api.version>
-        <sqlite.jdbc.version>3.49.1.0</sqlite.jdbc.version>
-        <mysql.connector.version>8.0.29</mysql.connector.version>
+        <sqlite.jdbc.version>3.47.1.0</sqlite.jdbc.version>
+        <mysql.connector.version>9.1.0</mysql.connector.version>
         <junit.version>5.11.4</junit.version>
     </properties>
 
@@ -91,11 +91,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- OPTIONAL (runtime, bundled as astra/lib/mysql-connector-java.jar):
+        <!-- OPTIONAL (runtime, bundled as astra/lib/mysql-connector-j.jar):
              only loaded when storage.yml selects "mysql"/"mariadb". -->
         <dependency>
-            <groupId>mysql</groupId>
-            <artifactId>mysql-connector-java</artifactId>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
             <version>${mysql.connector.version}</version>
             <scope>runtime</scope>
             <optional>true</optional>
@@ -171,10 +171,10 @@
                                     <destFileName>sqlite-jdbc-${sqlite.jdbc.version}.jar</destFileName>
                                 </artifactItem>
                                 <artifactItem>
-                                    <groupId>mysql</groupId>
-                                    <artifactId>mysql-connector-java</artifactId>
+                                    <groupId>com.mysql</groupId>
+                                    <artifactId>mysql-connector-j</artifactId>
                                     <version>${mysql.connector.version}</version>
-                                    <destFileName>mysql-connector-java-${mysql.connector.version}.jar</destFileName>
+                                    <destFileName>mysql-connector-j-${mysql.connector.version}.jar</destFileName>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>

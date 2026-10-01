@@ -3,6 +3,7 @@ package io.astra.plugin;
 import io.astra.command.AstraCommand;
 import io.astra.config.ConfigManager;
 import io.astra.data.DataStoreImpl;
+import io.astra.data.LibLoader;
 import io.astra.data.FileStorage;
 import io.astra.data.SqlStorage;
 import io.astra.data.Storage;
@@ -87,6 +88,7 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
     private BuiltinVocabulary vocabulary;
     private AstraCommand adminCommand;
     private volatile boolean shuttingDown;
+    private LibLoader.Loaded libLoader;
 
     @Override
     public void onEnable() {
@@ -110,6 +112,14 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
             config.main().naturalLanguage().enabled(), config.main().naturalLanguage().allowMixedMode());
         io.astra.language.parser.VocabularyProvider.setDefaultVocabulary(vocabulary);
         io.astra.runtime.vocab.BuiltinVocabulary.setShared(vocabulary);
+
+        // Bundled JDBC drivers (astra/lib/*.jar) are extracted and registered before
+        // storage is opened, so storage.yml can select sqlite/mysql without the
+        // server administrator installing a driver by hand.
+        libLoader = LibLoader.install(getClassLoader(), getDataFolder().toPath(), logger);
+        if (libLoader.usable()) {
+            logger.info("Storage drivers ready: " + libLoader.describe());
+        }
 
         security = new SecurityGateImpl(config, logger, getDataFolder().toPath());
         profiler = new SimpleProfiler(
@@ -169,6 +179,13 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
         if (tasks != null) tasks.cancelEverything();
         if (scheduler != null) scheduler.cancelAll();
         if (data != null) data.shutdown();
+        if (libLoader != null && libLoader.loader() instanceof java.io.Closeable closeable) {
+            try {
+                closeable.close();
+            } catch (Exception error) {
+                if (logger != null) logger.debug("Could not close the driver class loader: " + error);
+            }
+        }
         if (adminCommand != null) adminCommand.shutdown();
         if (logger != null) {
             logger.info("AstraSyntax disabled");

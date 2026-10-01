@@ -1,0 +1,3 @@
+// AstraSyntax - Gradle settings
+// The artifact is always named AstraSyntax-<version>.jar (see build.gradle).
+rootProject.name = 'AstraSyntax'

@@ -1,0 +1,23 @@
+# Persistent data configuration
+storage:
+  type: sqlite
+
+  sqlite:
+    file: data/astra.db
+
+  mysql:
+    enabled: false
+    host: localhost
+    port: 3306
+    database: astra
+    username: root
+    password: ""
+    ssl: false
+
+autosave:
+  enabled: true
+  interval: 5m
+
+cache:
+  enabled: true
+  player-data: true
