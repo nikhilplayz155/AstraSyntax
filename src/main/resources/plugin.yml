@@ -35,6 +35,7 @@ commands:
       /astra trace <script|off> - record a rule execution trace
       /astra performance [reset] - profiling report
       /astra errors - recent diagnostics
+      /astra package list|install <url|file> [sha256]|load <name>|unload <name> - manage packages
     aliases: [ar, astra]
     permission: astra.command
 
@@ -55,6 +56,7 @@ permissions:
       astra.command.trace: true
       astra.command.performance: true
       astra.command.errors: true
+      astra.command.package: true
   astra.command:
     description: 'Base permission required to use /astra at all.'
     default: op
@@ -90,4 +92,7 @@ permissions:
     default: op
   astra.command.errors:
     description: 'Allow /astra errors.'
+    default: op
+  astra.command.package:
+    description: 'Install, load and unload Astra packages.'
     default: op

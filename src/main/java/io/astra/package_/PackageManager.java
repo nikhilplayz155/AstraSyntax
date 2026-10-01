@@ -39,9 +39,13 @@ import org.bukkit.configuration.file.YamlConfiguration;
  * diagnostics and the same leak-free unload - a package is a way to distribute scripts,
  * never a second engine.</p>
  *
- * <p>Remote installation is deliberately not implemented: {@code security.yml} allows
- * disabling it and {@code packages.yml} defaults it to false, so the honest behaviour is to
- * say so rather than to download code from an unverified URL.</p>
+ * <p>Remote installation is implemented and gated twice, because it downloads code: both
+ * {@code packages.allow-remote-install} in {@code packages.yml} and
+ * {@code security.packages.allow-remote-install} in {@code security.yml} must be true, the
+ * URL must pass the security gate, the download is size-capped, and
+ * {@code security.packages.require-signatures} demands a {@code sha256} that the archive has
+ * to match. Archives are extracted with a zip-slip guard, so a hostile package cannot write
+ * outside its own folder.</p>
  */
 public final class PackageManager {
 
@@ -64,6 +68,199 @@ public final class PackageManager {
         this.logger = logger;
         this.scripts = scripts;
         this.security = security;
+    }
+
+    /** What happened during an install, for the command output. */
+    public record InstallResult(boolean ok, String name, String message) {
+    }
+
+    /**
+     * Installs a package from a URL or a local archive.
+     *
+     * <p>Runs the whole download and extraction on the calling thread, which the admin
+     * command keeps off the server thread; only the final load is scheduled back onto it.
+     * Every failure returns a reason instead of throwing, because "it did not install" is
+     * normal operation and deserves a message, not a stack trace.</p>
+     *
+     * @param source   an {@code https://} URL, or a path to a local {@code .zip}/{@code .ar}
+     * @param sha256   the expected SHA-256 of the archive, or {@code null}
+     * @param http     the HTTP service, or {@code null} when only local archives may be used
+     */
+    public InstallResult install(String source, String sha256, io.astra.runtime.net.HttpService http,
+                                 io.astra.runtime.ExecContext context) {
+        if (source == null || source.isBlank()) return new InstallResult(false, "", "No package source given");
+        boolean remote = source.startsWith("http://") || source.startsWith("https://");
+        if (remote && !config.packages().allowRemoteInstall()) {
+            return new InstallResult(false, "", "Remote installation is off: set packages.allow-remote-install to"
+                + " true in packages.yml");
+        }
+        if (remote && !security.policy().allowRemoteInstall()) {
+            return new InstallResult(false, "", "Remote installation is off: set packages.allow-remote-install to"
+                + " true in security.yml");
+        }
+        if (remote && security.policy().requireSignatures() && (sha256 == null || sha256.isBlank())) {
+            return new InstallResult(false, "", "security.packages.require-signatures is on, so the expected"
+                + " sha256 of the archive is required: /astra package install <url> <sha256>");
+        }
+
+        Path staging = null;
+        try {
+            Path archive;
+            String origin = "local file";
+            if (remote) {
+                if (http == null) {
+                    return new InstallResult(false, "", "HTTP is not available, so nothing can be downloaded");
+                }
+                staging = java.nio.file.Files.createTempDirectory("astra-package-");
+                archive = staging.resolve("package.zip");
+                var response = http.download(source, archive, context);
+                if (!response.ok()) {
+                    return new InstallResult(false, "", "Download failed: " + response.error());
+                }
+                origin = io.astra.runtime.net.HttpService.redact(source);
+            } else {
+                archive = config.resolve(source);
+                if (!java.nio.file.Files.isRegularFile(archive)) {
+                    return new InstallResult(false, "", "No archive at " + source
+                        + " (give a path inside the plugin data folder, or an https URL)");
+                }
+            }
+
+            if (sha256 != null && !sha256.isBlank()) {
+                String actual = io.astra.util.Hash.sha256(archive);
+                if (!actual.equalsIgnoreCase(sha256.trim())) {
+                    return new InstallResult(false, "", "Checksum mismatch: expected " + sha256.trim()
+                        + " but the archive is " + actual);
+                }
+            }
+
+            Path extracted = extract(archive, staging);
+            if (extracted == null) return new InstallResult(false, "", "The archive is not a readable zip file");
+            Path manifestFile = findManifest(extracted);
+            if (manifestFile == null) {
+                return new InstallResult(false, "", "The archive has no package.yml");
+            }
+            Manifest manifest = readManifest(manifestFile);
+            if (manifest == null || manifest.name().isBlank()) {
+                return new InstallResult(false, "", "package.yml has no name");
+            }
+            Path destination = folder().resolve(safeName(manifest.name()));
+            if (java.nio.file.Files.exists(destination)) {
+                return new InstallResult(false, manifest.name(),
+                    "Package '" + manifest.name() + "' is already installed in " + destination.getFileName());
+            }
+            Path root = manifestFile.getParent();
+            java.nio.file.Files.createDirectories(folder());
+            copyTree(root, destination);
+            logger.info("Installed package '" + manifest.name() + "' from " + origin);
+
+            if (!load(manifest.withFolder(destination))) {
+                return new InstallResult(false, manifest.name(),
+                    "Package '" + manifest.name() + "' was installed but did not load; see the log");
+            }
+            LoadedPackage loadedPackage = loaded.get(manifest.name().toLowerCase(java.util.Locale.ROOT));
+            int count = loadedPackage == null ? 0 : loadedPackage.scripts().size();
+            return new InstallResult(true, manifest.name(),
+                "Installed and loaded '" + manifest.name() + "' (" + count + " script(s))");
+        } catch (Exception error) {
+            logger.warn("Package install failed: " + logger.describe(error));
+            return new InstallResult(false, "", "Install failed: " + error.getClass().getSimpleName());
+        } finally {
+            if (staging != null) deleteTree(staging);
+        }
+    }
+
+    /** Extracts an archive into a fresh folder next to it and returns that folder. */
+    static Path extract(Path archive, Path staging) throws java.io.IOException {
+        Path root = (staging == null ? archive.getParent() : staging).resolve("contents");
+        java.nio.file.Files.createDirectories(root);
+        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(
+            java.nio.file.Files.newInputStream(archive))) {
+            java.nio.file.Path canonicalRoot = root.toRealPath();
+            java.util.zip.ZipEntry entry;
+            boolean any = false;
+            while ((entry = zip.getNextEntry()) != null) {
+                any = true;
+                Path target = root.resolve(entry.getName()).normalize();
+                // A zip entry may claim "../../server.properties": refuse anything that
+                // would land outside the package folder.
+                if (!target.startsWith(root) || !target.toAbsolutePath().startsWith(canonicalRoot.getParent())) {
+                    throw new java.io.IOException("archive entry escapes the package folder: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    java.nio.file.Files.createDirectories(target);
+                    continue;
+                }
+                Path parent = target.getParent();
+                if (parent != null) java.nio.file.Files.createDirectories(parent);
+                java.nio.file.Files.copy(zip, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            if (!any) return null;
+        } catch (java.util.zip.ZipException notAZip) {
+            return null;
+        }
+        return root;
+    }
+
+    /** The package.yml inside an extracted archive, at any depth (a zip often has one root). */
+    private Path findManifest(Path root) throws java.io.IOException {
+        Path direct = root.resolve("package.yml");
+        if (java.nio.file.Files.isRegularFile(direct)) return direct;
+        try (var stream = java.nio.file.Files.walk(root, 3)) {
+            return stream.filter(path -> path.getFileName().toString().equals("package.yml"))
+                .filter(java.nio.file.Files::isRegularFile)
+                .findFirst().orElse(null);
+        }
+    }
+
+    /** Reads a package.yml without going through the script loader. */
+    private Manifest readManifest(Path file) {
+        try {
+            var yaml = new org.bukkit.configuration.file.YamlConfiguration();
+            yaml.loadFromString(java.nio.file.Files.readString(file));
+            return new Manifest(yaml.getString("name", ""), yaml.getString("version", "1.0"),
+                yaml.getString("author", "unknown"), yaml.getString("description", ""),
+                yaml.getStringList("dependencies"), yaml.getStringList("optional-dependencies"),
+                file.getParent());
+        } catch (Exception error) {
+            logger.warn("Could not read " + file + ": " + logger.describe(error));
+            return null;
+        }
+    }
+
+    /** Copies an extracted package into its final folder. */
+    private void copyTree(Path from, Path to) throws java.io.IOException {
+        try (var stream = java.nio.file.Files.walk(from)) {
+            for (Path path : stream.toList()) {
+                Path target = to.resolve(from.relativize(path).toString());
+                if (java.nio.file.Files.isDirectory(path)) {
+                    java.nio.file.Files.createDirectories(target);
+                } else {
+                    Path parent = target.getParent();
+                    if (parent != null) java.nio.file.Files.createDirectories(parent);
+                    java.nio.file.Files.copy(path, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+    }
+
+    private static void deleteTree(Path root) {
+        try (var stream = java.nio.file.Files.walk(root)) {
+            for (Path path : stream.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                java.nio.file.Files.deleteIfExists(path);
+            }
+        } catch (java.io.IOException ignored) {
+            // A leftover temporary folder is harmless.
+        }
+    }
+
+    /**
+     * Package names become folder names, so they may not contain separators, and leading
+     * dots are removed so that a package called {@code ..} cannot point at its parent.
+     */
+    static String safeName(String name) {
+        String cleaned = name.replaceAll("[^A-Za-z0-9._-]", "_").replaceAll("^\\.+", "");
+        return cleaned.isBlank() ? "package" : cleaned;
     }
 
     /** The packages folder ({@code packages.folder} in packages.yml). */
@@ -98,6 +295,21 @@ public final class PackageManager {
             logger.info("Loaded " + names.size() + " package(s): " + String.join(", ", names));
         }
         return names;
+    }
+
+    /**
+     * Loads one installed package by its folder name (or its manifest name).
+     *
+     * @return true when the package compiled and its scripts started
+     */
+    public boolean load(String name) {
+        if (Strings.isBlank(name)) return false;
+        Path candidate = folder().resolve(safeName(name));
+        if (!Files.isDirectory(candidate)) candidate = folder().resolve(name);
+        Path manifestFile = candidate.resolve("package.yml");
+        if (!Files.isRegularFile(manifestFile)) return false;
+        Manifest manifest = readManifest(manifestFile);
+        return manifest != null && load(manifest.withFolder(candidate));
     }
 
     private Map<String, Manifest> readManifests(Path folder) {
@@ -284,6 +496,11 @@ public final class PackageManager {
         public Manifest {
             dependencies = dependencies == null ? List.of() : List.copyOf(dependencies);
             optionalDependencies = optionalDependencies == null ? List.of() : List.copyOf(optionalDependencies);
+        }
+
+        /** The same manifest pointing at the folder the package actually lives in. */
+        public Manifest withFolder(Path newFolder) {
+            return new Manifest(name, version, author, description, dependencies, optionalDependencies, newFolder);
         }
 
         /** A stable identity for update checks: name + version. */

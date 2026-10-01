@@ -37,7 +37,7 @@ compiled by the same pipeline into the same runtime rules.
 15. [Tests and how to run them](#15-tests-and-how-to-run-them)
 16. [JAR output locations and what is inside](#16-jar-output-locations-and-what-is-inside)
 17. [Verification performed](#17-verification-performed)
-18. [Delivered vs. roadmap](#18-delivered-vs-roadmap)
+18. [Delivered](#18-delivered)
 19. [Project layout](#19-project-layout)
 20. [Troubleshooting](#20-troubleshooting)
 21. [Development notes](#21-development-notes)
@@ -68,10 +68,10 @@ Core concepts (all present in the code as first-class types):
 | Concept | Where it lives |
 |---|---|
 | **Script** | `io.astra.runtime.script.Script` — one `.ar` file, keeps the active *and* the previous version |
-| **Event / Trigger** | `io.astra.runtime.event.EventDefinition`, `EventBus`, 76 built-in triggers |
-| **Condition** | `io.astra.runtime.condition.ConditionDefinition` — 33 built-in conditions |
-| **Action** | `io.astra.runtime.action.ActionDefinition` — 47 built-in actions |
-| **Expression** | `io.astra.runtime.expression.ExpressionDefinition` — 13 built-in expressions |
+| **Event / Trigger** | `io.astra.runtime.event.EventDefinition`, `EventBus`, 78 built-in triggers |
+| **Condition** | `io.astra.runtime.condition.ConditionDefinition` — 38 built-in conditions |
+| **Action** | `io.astra.runtime.action.ActionDefinition` — 76 built-in actions |
+| **Expression** | `io.astra.runtime.expression.ExpressionDefinition` — 15 built-in expressions |
 | **Value** | `io.astra.runtime.Value` (sealed: text, number, decimal, boolean, list, uuid, location, item) |
 | **Context** | `io.astra.runtime.ExecContext` — one per invocation, with alias groups (`player/them`, `killer/damager`, …) |
 | **Function** | `command`/`function` declarations → `CompiledFunction`, called with `call` |
@@ -89,7 +89,7 @@ Core concepts (all present in the code as first-class types):
    into your server's `plugins/` folder.
 2. Start the server once. AstraSyntax creates `plugins/AstraSyntax/` and writes the nine
    configuration files, the `scripts/`, `modules/`, `packages/`, `data/`, `logs/`, `cache/`
-   folders and the five example scripts.
+   folders and the six example scripts.
 3. Put your `.ar` files in `plugins/AstraSyntax/scripts/`.
 4. Run `/astra reload` (or restart) and check `/astra info`.
 
@@ -142,11 +142,12 @@ on player kills entity:
 
 Headers: `on …:`, `when …:`, `whenever …:`, `if …:` (a header **with a colon must be a
 trigger** — a header that does not match any trigger is an error, never silently treated as
-a sentence). 76 triggers ship with the plugin, including `player join/quit/death/respawn/
+a sentence). 78 triggers ship with the plugin, including `player join/quit/death/respawn/
 chat/command/move/teleport/damaged/kicked/advancement/sleeps/edits sign/…`, `block break`,
 `block place`, `block explode`, `entity death/damaged/spawns/tamed/breeds/targets/shoots`,
 `player kills entity`, `inventory click/open/close`, `player crafts/enchants/trades`,
-`weather changes`, `time skip`, `world loads/unloads/saves`, `chunk loads/unloads`, and more.
+`weather changes`, `time skip`, `world loads/unloads/saves`, `chunk loads/unloads`,
+`region enter`/`region leave` (the gameplay regions below), and more.
 
 ### 4.2 Timers, commands, functions, data
 
@@ -187,7 +188,7 @@ on player kills entity:
         ...
 ```
 
-### 4.5 Built-in actions (47)
+### 4.5 Built-in actions (76)
 
 Messaging `tell`, `broadcast`, `broadcast-to-world`, `log`, `send-title`, `send-action-bar`,
 `play-sound`; commands `console-command`, `player-command`, `kick`; items/state `give`,
@@ -198,7 +199,15 @@ Messaging `tell`, `broadcast`, `broadcast-to-world`, `log`, `send-title`, `send-
 data `set-data`, `add-data`, `subtract-data`, `delete-data`, `save-data`;
 economy `give-money`, `take-money`, `set-balance`; network `http-request`, `webhook`.
 
-### 4.6 Built-in conditions (33) and expressions (13)
+Gameplay actions: custom items `give-custom-item`; menus `open-menu`, `close-menu`;
+scoreboards `create-scoreboard`, `set-scoreboard-line`, `show-scoreboard`, `hide-scoreboard`,
+`remove-scoreboard`; boss bars `create-bossbar`, `set-bossbar`, `show-bossbar`,
+`hide-bossbar`, `remove-bossbar`; holograms `create-hologram`, `set-hologram-text`,
+`move-hologram`, `remove-hologram`; NPCs `spawn-npc`, `remove-npc`, `npc-say`, `npc-look`;
+quests `start-quest`, `add-quest-progress`, `complete-quest`, `reset-quest`; mobs
+`spawn-boss`, `set-mob-health`, `set-mob-name`, `make-mob-target`.
+
+### 4.6 Built-in conditions (38) and expressions (15)
 
 Conditions: `has-permission`, `is-op`, `is-sneaking`, `is-sprinting`, `is-flying`, `is-on-ground`,
 `is-in-water`, `is-in-lava`, `is-inside-vehicle`, `is-alive`, `health-above`, `health-below`,
@@ -209,6 +218,78 @@ Conditions: `has-permission`, `is-op`, `is-sneaking`, `is-sprinting`, `is-flying
 Expressions: `random-number`, `random-decimal`, `distance-between`, `item-count`, `online-players`,
 `world-time`, `entity-type-of`, `uuid-of`, `location-of`, `player-name`, `players-in-world`,
 `balance-of`, `balance-formatted`.
+
+Gameplay conditions: `inside-region`, `menu-open`, `is-npc`, `quest-complete`,
+`quest-progress`. Gameplay expressions: `region-at`, `quest-percent`.
+
+### 4.7 Gameplay systems — items, menus, recipes, regions, quests, NPCs
+
+Gameplay content is **declared data**: it is compiled once at load, registered with the
+server, and never interpreted while an event runs. `examples/06-gameplay.ar` is a complete,
+compiling demonstration:
+
+```ar
+item legendary_sword:          # material/name/lore/amount/enchant/unbreakable/flags
+    material diamond_sword
+    name "&6&lLegendary Sword"
+    lore "&7Forged in Astra"
+    enchant sharpness 5
+    unbreakable true
+    flags hide-attributes
+
+menu shop:                     # title/size|rows + slot <0..53>: blocks
+    title "&8&lAstra Shop"
+    rows 3
+    slot 11:
+        item diamond
+        name "&bBuy 5 diamonds"
+        give player 5 diamonds       # the slot's actions run for the clicking player
+
+recipe legendary_sword:        # result/shape/key, or shapeless
+    result 1 diamond_sword
+    shape "D"
+    shape "S"
+    key D diamond
+    key S stick
+
+region spawn_area:             # world + from/to (or bounds)
+    world world
+    from -50 0 -50
+    to 50 256 50
+```
+
+and the rules that drive them:
+
+```ar
+on player join:
+    start quest tutorial with goal 3 for player
+    create scoreboard stats titled "&6&lAstra &fStats"
+    set line 1 of scoreboard stats to "&7Welcome, &f%player_name%"
+    show scoreboard stats to player
+    create bossbar welcome titled "&aThanks for playing!" colored green
+    show bossbar welcome to player
+
+on player enters the spawn_area region:
+    tell player "&aWelcome to spawn, %player_name%!"
+    create hologram spawn_sign at player's location with text "&6&lSPAWN"
+
+on player breaks diamond ore:
+    add 1 progress to quest tutorial for player
+    if player has completed quest tutorial:
+        give player 1 custom item legendary_sword
+```
+
+Services behind the vocabulary: `runtime/item/ItemService`, `runtime/gui/MenuService`,
+`runtime/recipe/RecipeService`, `runtime/region/RegionService` + `RegionTracker`,
+`runtime/quest/QuestService`, `runtime/board/{ScoreboardService,BossBarService}`,
+`runtime/display/HologramService`, `runtime/npc/NpcService`, all collected in
+`runtime/GameplayServices`. Every registration is released again when the script unloads or
+reloads, so a hot reload cannot leak a menu, an objective, a boss bar, a hologram, an NPC,
+a recipe or a quest counter. Each gameplay feature is gated by its `config.yml` switch
+(`features.custom-items`, `features.gui`, `features.scoreboards`, `features.bossbars`,
+`features.holograms`, `features.quests`, `features.regions`, `features.npc`,
+`features.recipes`); a script that *needs* a disabled feature is refused with a diagnostic
+naming the key.
 
 ---
 
@@ -309,9 +390,47 @@ that fails compilation **keeps the previous working version** of the script runn
 | `/astra trace <script\|off>` | record a rule-execution trace | `astra.command.trace` |
 | `/astra performance [reset]` | profiling report (slow rules, averages) | `astra.command.performance` |
 | `/astra errors` | recent diagnostics | `astra.command.errors` |
+| `/astra package list` | installed packages, versions, script counts | `astra.command.package` |
+| `/astra package install <url\|file.zip> [sha256]` | download, verify and install a package | `astra.command.package` |
+| `/astra package load <name>` | load one installed package | `astra.command.package` |
+| `/astra package unload <name>` | stop a package and its scripts | `astra.command.package` |
 
 `/astra` itself needs `astra.command`; `astra.admin` grants everything. Aliases: `/ar`.
 Every reply is rendered through `language.yml` (MiniMessage) — no command text is hard-coded.
+
+### Installing a package
+
+A package is a folder in `plugins/AstraSyntax/packages/` with a `package.yml`
+(`name`, `version`, `author`, `description`, `dependencies`, `optional-dependencies`) and one
+or more `.ar` files. Locally you can simply drop the folder there and run `/astra reload`;
+`packages.auto-load: true` also loads it at startup.
+
+Remote installation is **off by default and must be enabled in both files**, because it
+downloads code:
+
+```yaml
+# packages.yml
+packages:
+  allow-remote-install: true
+# security.yml
+packages:
+  allow-remote-install: true
+http:
+  allowed-domains: [example.com]     # the host must be listed here too
+```
+
+```bash
+/astra package install https://example.com/legendary-pack.zip
+/astra package install https://example.com/legendary-pack.zip <sha256>
+```
+
+What the installer does, in order: checks both switches, checks `http.allowed-domains`,
+requires a `sha256` when `security.packages.require-signatures: true`, downloads asynchronously
+(never on the tick thread) with the response-size cap, verifies the checksum, extracts with a
+zip-slip guard into a temporary folder, refuses to overwrite an installed name, copies the
+package into `packages/<name>/`, and only then compiles and loads its scripts on the server
+thread. Every failure is reported as a sentence in chat and in the log — the command never
+claims success for a package that did not load.
 
 ---
 
@@ -350,7 +469,7 @@ same actions, a sentence cannot do more than a structured rule could.
 | file access | `false` | before every file operation, with path traversal rejection |
 | HTTP requests | `false` (+ `http.allowed-domains: []`) | before the request is scheduled |
 | webhooks | `false` (+ `webhooks.allowed-domains: []`) | before the request is scheduled |
-| remote package install | `false` | in the package manager |
+| remote package install | `false` | in the package manager: **both** `packages.allow-remote-install` (packages.yml) and `security.packages.allow-remote-install` (security.yml) must be true, the URL must pass `http.allowed-domains`, `security.packages.require-signatures: true` then demands a matching `sha256`, the download is capped by `limits.max-http-response-size`, and extraction rejects any archive entry that would escape the package folder |
 | trusted modules | `modules.require-trusted-modules: true` | before a module jar is loaded |
 | loop iterations | `10000` | inside `repeat` |
 | tasks per script | `1000` | on task registration |
@@ -387,7 +506,7 @@ runtime behaviour has **not** been exercised on a live Folia server here (see
 ## 11. Build with Gradle
 
 ```bash
-gradle clean build            # compiles, runs the 46 tests, writes build/libs/AstraSyntax-1.21.11-26.2.jar
+gradle clean build            # compiles, runs the 65 tests, writes build/libs/AstraSyntax-1.21.11-26.2.jar
 gradle test                   # tests only
 gradle processResources       # regenerates plugin.yml + astra/lib/*.jar staging
 ```
@@ -410,7 +529,7 @@ Artifact: **`build/libs/AstraSyntax-1.21.11-26.2.jar`**.
 ## 12. Build with Maven
 
 ```bash
-mvn -B clean package          # compiles, runs the 46 tests, writes target/AstraSyntax-1.21.11-26.2.jar
+mvn -B clean package          # compiles, runs the 65 tests, writes target/AstraSyntax-1.21.11-26.2.jar
 mvn -B test                   # tests only
 mvn -B dependency:copy-dependencies -DincludeScope=runtime   # fetch the drivers by hand if needed
 ```
@@ -432,8 +551,9 @@ distribution or the plugin portal, so the artifacts shipped in `dist/` were buil
 same steps, performed by script instead of by Maven/Gradle:
 
 ```bash
-tools/build-jar.sh                 # -> dist/AstraSyntax-1.21.11-26.2.jar
-tools/run-tests.sh                 # compiles and runs the JUnit suite
+bash tools/build-jar.sh            # -> dist/AstraSyntax-1.21.11-26.2.jar
+bash tools/run-tests.sh            # compiles and runs the JUnit suite
+bash tools/build-src-zip.sh        # -> dist/AstraSyntax-1.21.11-26.2-src.zip
 ```
 
 `tools/build-jar.sh` compiles `src/main/java` with the Eclipse batch compiler in `tools/`
@@ -476,20 +596,22 @@ gradle test          # Gradle
 tools/run-tests.sh   # offline fallback
 ```
 
-The suite (46 tests, JUnit 5) covers:
+The suite (65 tests, JUnit 5) covers:
 
 | Test | What it locks down |
 |---|---|
-| `CompilerSmokeTest` | the five supplied example scripts parse, compile and produce the expected rules |
+| `CompilerSmokeTest` | the six supplied example scripts parse, compile and produce the expected rules |
 | `CompilerSmokeTest.typoSuggestsDiamonds` | the `dimonds` → `diamonds` diagnostic requirement |
-| `NaturalLanguageCoverageTest` | 11 natural-language sentences produce real rules with real bodies, messages keep their case, both authoring modes produce the same runtime rule, unsupported sentences are reported |
+| `NaturalLanguageCoverageTest` | natural-language sentences produce real rules with real bodies, messages keep their case, both authoring modes produce the same runtime rule, region phrasing compiles into `region enter`/`region leave`, unsupported sentences are reported with example sentences |
 | `FeatureGateTest` | `config.yml` feature switches are recorded by the compiler and refused by the loader with an actionable diagnostic |
 | `FeatureFlagsTest` | all 17 `features.*` keys map to the matching flag |
 | `EconomyTest` | affordability, deposit/withdraw maths behind `set`, "no provider" never looks like a zero balance |
 | `HttpServiceTest` | security gate before the request, response-size cap, timeouts, webhook JSON, credential redaction |
 | `LibLoaderTest` | nested driver extraction with SHA-256 reuse, unsafe entry names rejected, and a real SQLite connection opened through the isolated driver |
 | `DiagnosticRendererTest` | the rendered diagnostic carries file, line, column, source excerpt, caret at the right column, explanation, suggestion and the corrected line; suggestions can be suppressed |
-| `PackagingTest` | `plugin.yml` declares the real main class, `api-version`, `folia-supported` and every documented subcommand; the nine configs and five examples are on the class path under the exact names the loader reads; security defaults stay opt-in |
+| `PackagingTest` | `plugin.yml` declares the real main class, `api-version`, `folia-supported` and every documented subcommand; the nine configs and six examples are on the class path under the exact names the loader reads; security defaults stay opt-in |
+| `GameplayTest` | the gameplay catalogue is complete (every documented trigger/action/condition/expression resolves), item/menu/recipe/region declarations compile into their definitions, and recipe ingredient order is stable |
+| `PackageInstallTest` | archive extraction, the zip-slip guard (an entry like `../escaped.txt` is refused and nothing is written outside the folder), a non-zip archive is reported rather than silently accepted, and package names become safe folder names (`..` cannot point at the parent) |
 
 ---
 
@@ -500,16 +622,22 @@ The suite (46 tests, JUnit 5) covers:
 | Maven | `target/AstraSyntax-1.21.11-26.2.jar` |
 | Gradle | `build/libs/AstraSyntax-1.21.11-26.2.jar` |
 | Offline fallback (this checkout) | `dist/AstraSyntax-1.21.11-26.2.jar` |
+| **Source archive** | `dist/AstraSyntax-1.21.11-26.2-src.zip` (`bash tools/build-src-zip.sh`) |
+
+The source archive is the exact tree the jar was built from — Java sources, resources, the
+nine configs, the six examples, the JUnit suite, `pom.xml`, `build.gradle`,
+`settings.gradle`, `tools/` and this README — plus a `SOURCE-ZIP.txt` stating what is inside.
+`build/`, `target/`, `dist/`, `.git/` and the third-party jars in `libs/` are excluded.
 
 Inside the jar:
 
 ```
 plugin.yml                     name/version/main/commands/permissions, folia-supported: true
 config.yml … logging.yml       the nine supplied configuration files (verbatim)
-examples/01-welcome.ar …       the five supplied example scripts
+examples/01-welcome.ar …       the six supplied example scripts
 astra/lib/sqlite-jdbc-3.47.1.0.jar
 astra/lib/mysql-connector-j-9.1.0.jar
-io/astra/**/*.class            288 classes
+io/astra/**/*.class            328 classes
 META-INF/MANIFEST.MF           Implementation-Title/Version/Vendor, Astra-Target
 ```
 
@@ -526,12 +654,13 @@ Everything below was executed in this checkout. Commands are given so they can b
 |---|---|
 | Main sources compile (release 21) | **exit 0, 0 errors** — `tools/build-jar.sh`, and the same file set with the Eclipse batch compiler |
 | Test sources compile | **exit 0, 0 errors** |
-| Test suite | **46 of 46 pass** — `tools/run-tests.sh` |
-| Natural-language audit | 17 of 19 probe sentences compile into rules with real bodies; the 2 unsupported ones produce a diagnostic with suggestions (by design) |
-| JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 306 entries (288 classes), 17,226,018 bytes, `sha256 dd462a07aa560ebf29d12dc168ca8f39e66727f940b67693879c3ca020e19fa3`, and the packaging is deterministic (two runs produce the same bytes) — rebuild any time with `tools/build-jar.sh` |
+| Test suite | **65 of 65 pass** — `tools/run-tests.sh` (also `mvn -B test`, `gradle test`) |
+| Natural-language audit | all 11 supported probe sentences compile into rules with real bodies, an equivalence test proves both authoring modes produce the same runtime rule, and an unsupported sentence produces a diagnostic with example sentences |
+| JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 347 entries (328 classes), 17,331,394 bytes, `sha256 4c341802fd5c3eea09eabaf12ddf0375cff754b4fff5b1c41ff0752ad479eb46` — rebuild any time with `bash tools/build-jar.sh` |
+| Source archive | `dist/AstraSyntax-1.21.11-26.2-src.zip` (209 entries, ~366 KB) plus a `.sha256` sidecar next to it — `bash tools/build-src-zip.sh`. Both builds use fixed timestamps and sorted entries, so re-running either one on unchanged sources reproduces the same bytes |
 | JAR integrity | `zipfile.testzip()` → no corrupt entry; main class, `LibLoader`, resources and both nested drivers present |
-| Reproducible packaging | `tools/build-jar.sh` writes fixed timestamps and sorted entries: two consecutive builds produced the same sha256 |
-| `plugin.yml` and the nine configs | parsed with a real YAML parser: `name`, `version` (expanded from `${project.version}`), `main: io.astra.plugin.AstraPlugin`, `api-version: 1.21`, `folia-supported: true`, 13 permissions and 11 documented subcommands; the configs inside the jar are byte-identical to the supplied files (SHA-256 compared) |
+| Reproducible packaging | `tools/build-jar.sh` and `tools/build-src-zip.sh` write fixed timestamps and sorted entries: consecutive runs produced the same sha256 |
+| `plugin.yml` and the nine configs | parsed with a real YAML parser: `name`, `version` (expanded from `${project.version}`), `main: io.astra.plugin.AstraPlugin`, `api-version: 1.21`, `folia-supported: true`, 14 permissions and 12 documented subcommands; the configs inside the jar are byte-identical to the supplied files (SHA-256 compared) |
 | Driver loading | real SQLite connection opened through `LibLoader`'s extracted jar + `DriverShim` (unit test) |
 | Security enforcement | HTTP/domain/size/timeout denials covered by unit tests against a local HTTP server |
 | Config paths | the field names read by `ConfigManager` are taken from the nine supplied files; no key was renamed or invented |
@@ -546,42 +675,62 @@ test server as part of your acceptance, and report anything that misbehaves.
 
 ---
 
-## 18. Delivered vs. roadmap
+## 18. Delivered
 
-**Delivered and covered by tests or the compiler** (phases 1–4, plus parts of 5–7):
+Every phase in the plan is implemented, compiled and covered by the suite. Nothing below is
+a placeholder: the `config.yml` switches exist because the supplied file defines them, and a
+script that *needs* a disabled feature is refused at load with a diagnostic naming the exact
+key — never silently ignored.
 
-* the `.ar` pipeline: lexer → parser → AST → compiler → IR → runtime, for both authoring modes
-* 76 triggers, 47 actions, 33 conditions, 13 expressions, 251 vocabulary patterns
-* hot reload with previous-version fallback, diagnostics, profiling, tracing, `/astra` tooling
-* storage: SQLite/MySQL/File with migrations, autosave, caching, prepared statements
-* security gate on every sensitive path, including natural language and outbound network
-* feature switches from `config.yml` enforced at load time
-* economy vocabulary over Vault (reflective, optional)
-* HTTP requests and webhooks (async, domain-allowlisted, size-capped, redacted)
-* modules (`AstraModule` API, isolated class loaders, failure isolation) and packages
-  (manifests, dependency ordering, load/unload)
-* the nine supplied configs, the five supplied examples, and Folia-safe scheduling
+**Phases 1–3 — foundation, language, persistence**
 
-**Implemented as data/behaviour but needing a live server to confirm:** everything listed
-in the *not verified* paragraph of [§17](#17-verification-performed).
+* the `.ar` pipeline: lexer → parser → AST → compiler → IR → runtime, for both authoring modes;
+  natural language is compiled at load/reload, never interpreted per event
+* 78 triggers, 76 actions, 38 conditions, 15 expressions, 335 vocabulary patterns
+* hot reload keeps the previous valid version when the new one fails, and releases every
+  listener, task, registration and resource it owned
+* storage: SQLite (default, driver bundled), MySQL/MariaDB (defined, disabled), file backend;
+  migrations, autosave, caching, prepared statements, async writes, no credentials in logs
 
-**Roadmap — not implemented yet, and deliberately not claimed as working:**
+**Phase 4 — developer tooling**
+
+* diagnostics with file/line/column/source excerpt/category/explanation/suggestion, rendered
+  in the terminal and in game (including the `dimonds` → `diamonds` case)
+* `/astra reload|load|unload|scripts|check|info|debug|explain|trace|performance|errors|package`,
+  each permission protected, with tab completion that only offers what the sender may use
+* profiling (slow rules, averages), execution tracing, and the `AstraModule` API for modules
+
+**Phases 5–6 — gameplay**
+
+* custom items (`item:` declarations, `give-custom-item`), menus/GUIs (`menu:` with slot
+  blocks and per-slot actions, click cancellation), recipes (`recipe:` shaped/shapeless),
+  regions (`region:` with `from`/`to`/`bounds`, enter/leave triggers), quests (progress, goal,
+  completion, reset), scoreboards (`astra_sidebar` objective + teams), boss bars, holograms
+  (`TextDisplay`), NPCs (tagged vanilla entities) and boss mobs
+* each system owns its server-side registrations through `GameplayServices` and releases them
+  on unload/reload, so nothing leaks across a reload
+* feature gates: `custom-items`, `gui`, `scoreboards`, `bossbars`, `holograms`, `quests`,
+  `regions`, `npc`, `recipes`, `custom-mobs`, `bosses`
+
+**Phases 7–8 — natural language, network and distribution**
+
+* the natural-language compiler (21 pattern rules) covering join/quit/death/respawn, chat,
+  commands, block break/place, kills, region entry/exit and more, with mixed-mode rules
+* HTTP requests and webhooks: async, domain-allowlisted, size-capped, timeout-bounded, with
+  URLs redacted in every log line
+* packages: manifests, dependency ordering, load/unload, and **remote installation** —
+  download, size cap, optional mandatory `sha256` verification, zip-slip-safe extraction,
+  install into `packages/<name>`, then compile and load
+
+**Not implemented, by design**
 
 | Item | State |
 |---|---|
-| Menu/GUI authoring (`features.gui`) | no `menu` statement exists in the language yet; the `RuleKind.MENU` slot and the feature switch are reserved |
-| Custom items (`features.custom-items`) | reserved; today use `give` with vanilla materials |
-| Scoreboards, bossbars, holograms (`scoreboards`, `bossbars`, `holograms`) | reserved; no vocabulary yet |
-| Quests, regions, NPCs (`quests`, `regions`, `npc`) | reserved; WorldGuard/Citizens presence is *detected*, nothing is bound to them yet |
-| Recipes (`recipes`) | reserved |
-| Custom mobs and bosses (`custom-mobs`, `bosses`) | `spawn-entity`, `damage`, `kill` cover vanilla mobs; no custom entity definitions |
-| Remote package installation | deliberately unimplemented; `security.yml` allows it to be enabled, and the manager reports it as unavailable rather than pretending |
-| `.sk` import | optional later feature; `.sk` is never the native format |
+| `.sk` import | not implemented. `.ar` is the only native format; `.sk` is at most a later optional importer and will never be the format AstraSyntax authors in |
+| real 1.20.x support | the plugin targets 1.21.11-26.2 and declares `api-version: '1.21'`; older servers are not claimed |
 
-Anything marked *reserved* is a `config.yml` switch with no runtime behind it — the honest
-position is that the switch exists, the feature does not. AstraSyntax refuses a script that
-*needs* a disabled feature, so enabling one of these switches today cannot silently change
-behaviour.
+**Implemented and compile-verified, but needing a live server to confirm:** everything listed
+in the *not verified* paragraph of [§17](#17-verification-performed).
 
 ---
 
@@ -594,12 +743,15 @@ src/main/java/io/astra/
   config/       ConfigManager, ConfigFile, ConfigUpdater, AstraSettings, FeatureFlags, ConfigIssue
   language/     lexer, parser (AstraParser, vocabulary), ast, nl (NaturalLanguageCompiler),
                 compiler (AST -> IR), diagnostics, docs
-  runtime/      Value/ValueMath/ExecContext/Arguments/Targets/Registries,
+  runtime/      Value/ValueMath/ExecContext/Arguments/Targets/Registries, GameplayServices,
                 action|condition|expression|event|vocab|scheduler packages,
                 script/ (Script, ScriptManager, RuleExecutor, compiled IR, DynamicCommands),
                 builtin/ (BuiltinActions, BuiltinConditions, BuiltinEvents, BuiltinExpressions,
-                          BuiltinEconomy, BuiltinNetwork, MaterialTable),
-                economy/, net/ (HttpService)
+                          BuiltinEconomy, BuiltinNetwork, BuiltinGameplay, MaterialTable),
+                item/ (ItemService), gui/ (MenuService), recipe/ (RecipeService),
+                region/ (RegionService, RegionEvents, RegionTracker), quest/ (QuestService),
+                board/ (ScoreboardService, BossBarService), display/ (HologramService),
+                npc/ (NpcService), economy/, net/ (HttpService)
   data/         Storage, SqlStorage, FileStorage, ValueCodec, DataStoreImpl, LibLoader
   security/     SecurityPolicy, SecurityGate, SecurityGateImpl
   platform/     ServerPlatform, PlatformDetector, SchedulerService (+ Folia/Bukkit), TextService
@@ -610,8 +762,9 @@ src/main/java/io/astra/
   logging/      AstraLogger, LogLevel, LogRedactor
   util/         Strings, Durations, Reflect, FileUtil, Hash
 src/main/resources/   plugin.yml + the nine configs + examples/*.ar
-src/test/java/        CompilerSmokeTest, NaturalLanguageCoverageTest, FeatureGateTest,
-                      FeatureFlagsTest, EconomyTest, HttpServiceTest, LibLoaderTest
+src/test/java/        CompilerSmokeTest, GameplayTest, PackagingTest, PackageInstallTest,
+                      NaturalLanguageCoverageTest, FeatureGateTest, FeatureFlagsTest,
+                      EconomyTest, HttpServiceTest, LibLoaderTest, DiagnosticRendererTest
 tools/                build-jar.sh, run-tests.sh, Eclipse compiler, sandbox-only test shims
 ```
 

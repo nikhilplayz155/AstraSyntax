@@ -32,7 +32,11 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
 
     /** Subcommands, in help order. */
     private static final List<String> SUBCOMMANDS = List.of(
-        "reload", "load", "unload", "scripts", "check", "info", "debug", "explain", "trace", "performance", "errors");
+        "reload", "load", "unload", "scripts", "check", "info", "debug", "explain", "trace", "performance",
+        "errors", "package");
+
+    /** Package subcommands, in help order. */
+    private static final List<String> PACKAGE_SUBCOMMANDS = List.of("list", "install", "load", "unload");
 
     private final JavaPlugin plugin;
     private final io.astra.plugin.AstraPlugin astra;
@@ -75,6 +79,7 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
             case "trace" -> trace(sender, argument);
             case "performance", "perf" -> performance(sender, argument);
             case "errors" -> errors(sender);
+            case "package", "packages" -> packageCommand(sender, args);
             default -> {
                 reply(sender, "<red>Unknown subcommand '" + sub + "'.</red>");
                 help(sender, label);
@@ -369,7 +374,73 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
     private void help(CommandSender sender, String label) {
         reply(sender, "<gray>AstraSyntax commands:</gray>");
         for (String sub : SUBCOMMANDS) {
-            reply(sender, "<gray> /" + label + " <white>" + sub + "</white></gray>");
+            reply(sender, "<gray> /" + label + " <white>" + sub + "</white>"
+                + (sub.equals("package") ? " <dark_gray>(" + String.join("|", PACKAGE_SUBCOMMANDS) + ")"
+                    + "</dark_gray>" : "") + "</gray>");
+        }
+    }
+
+    // -------------------------------------------------------------- packages
+
+    /**
+     * {@code /astra package list|install <url|file> [sha256]|load <name>|unload <name>}.
+     *
+     * <p>Installation downloads and unpacks off the server thread and only the final
+     * registration runs on it, so a slow package host cannot stall the tick loop.</p>
+     */
+    private void packageCommand(CommandSender sender, String[] args) {
+        String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "list";
+        switch (action) {
+            case "list", "status" -> {
+                var manager = astra.packages();
+                reply(sender, "<gray>Packages in <white>" + manager.folder() + "</white>:</gray>");
+                var loaded = manager.loaded();
+                if (loaded.isEmpty()) reply(sender, "<gray> - none loaded</gray>");
+                for (var loadedPackage : loaded) {
+                    reply(sender, "<gray> - <green>" + loadedPackage.name() + "</green> "
+                        + loadedPackage.version() + " <dark_gray>by " + loadedPackage.author() + " ("
+                        + loadedPackage.scripts().size() + " script(s))</dark_gray>");
+                }
+            }
+            case "install" -> {
+                if (args.length < 3) {
+                    reply(sender, "<red>Usage: /astra package install <https://url|file.zip> [sha256]</red>");
+                    return;
+                }
+                String source = args[2];
+                String checksum = args.length > 3 ? args[3] : null;
+                reply(sender, "<gray>Installing <white>" + source + "</white>...</gray>");
+                io.astra.runtime.ExecContext context = io.astra.runtime.ExecContext.forSender(
+                    astra, "command", null, null, sender, sender instanceof org.bukkit.entity.Player p ? p : null,
+                    sender instanceof org.bukkit.entity.Entity e ? e : null, null);
+                astra.scheduler().runAsync(() -> {
+                    var result = astra.packages().install(source, checksum, astra.http(), context);
+                    // Loading registers listeners, so it belongs on the server thread.
+                    astra.scheduler().runGlobal(() -> reply(sender, result.ok()
+                        ? "<green>" + result.message() + "</green>"
+                        : "<red>Package install failed: " + result.message() + "</red>"));
+                });
+            }
+            case "load" -> {
+                if (args.length < 3) {
+                    reply(sender, "<red>Usage: /astra package load <name></red>");
+                    return;
+                }
+                boolean ok = astra.packages().load(args[2]);
+                reply(sender, ok ? "<green>Loaded package '" + args[2] + "'.</green>"
+                    : "<red>Package '" + args[2] + "' was not loaded; check the name and the log.</red>");
+            }
+            case "unload" -> {
+                if (args.length < 3) {
+                    reply(sender, "<red>Usage: /astra package unload <name></red>");
+                    return;
+                }
+                boolean ok = astra.packages().unload(args[2]);
+                reply(sender, ok ? "<green>Unloaded package '" + args[2] + "'.</green>"
+                    : "<red>No loaded package named '" + args[2] + "'.</red>");
+            }
+            default -> reply(sender, "<red>Usage: /astra package list|install <url> [sha256]|load|unload"
+                + " <name></red>");
         }
     }
 
@@ -403,6 +474,12 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2) {
             String sub = args[0].toLowerCase(Locale.ROOT);
             String prefix = args[1].toLowerCase(Locale.ROOT);
+            if (sub.equals("package") || sub.equals("packages")) {
+                for (String action : PACKAGE_SUBCOMMANDS) {
+                    if (action.startsWith(prefix)) out.add(action);
+                }
+                return out;
+            }
             if (sub.equals("trace")) out.add("off");
             if (sub.equals("performance") || sub.equals("perf")) out.add("reset");
             for (Script script : astra.scripts().scripts()) {
@@ -412,6 +489,18 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
                 for (Path file : astra.scripts().discover()) {
                     String name = file.getFileName().toString();
                     if (name.toLowerCase(Locale.ROOT).startsWith(prefix)) out.add(name);
+                }
+            }
+            return out;
+        }
+        if (args.length == 3) {
+            String sub = args[0].toLowerCase(Locale.ROOT);
+            String prefix = args[2].toLowerCase(Locale.ROOT);
+            if (sub.equals("package") || sub.equals("packages")) {
+                for (var loadedPackage : astra.packages().loaded()) {
+                    if (loadedPackage.name().toLowerCase(Locale.ROOT).startsWith(prefix)) {
+                        out.add(loadedPackage.name());
+                    }
                 }
             }
         }

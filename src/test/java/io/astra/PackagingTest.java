@@ -47,7 +47,7 @@ class PackagingTest {
             "Folia only loads plugins that declare support");
         assertTrue(plugin.contains("astra.command"), "the base permission must be declared");
         for (String subcommand : List.of("reload", "load", "unload", "scripts", "check", "info", "debug",
-            "explain", "trace", "performance", "errors")) {
+            "explain", "trace", "performance", "errors", "package")) {
             assertTrue(plugin.contains("/astra " + subcommand),
                 "plugin.yml usage must document /astra " + subcommand);
         }

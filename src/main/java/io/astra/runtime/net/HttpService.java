@@ -149,6 +149,79 @@ public final class HttpService {
         }
     }
 
+    /**
+     * Downloads a URL into a file, honouring exactly the same security gate and size cap as
+     * {@link #request}. Used by the package manager, which needs bytes rather than text.
+     *
+     * @return a response whose {@code status} is the HTTP status and whose {@code error}
+     *         explains a failure; the file is only created on success
+     */
+    public Response download(String url, java.nio.file.Path target, ExecContext context) {
+        gate.checkHttp(url, false, context);
+        URI uri;
+        try {
+            uri = URI.create(url.trim());
+        } catch (IllegalArgumentException error) {
+            return new Response(false, 0, "", 0, "malformed URL: " + redact(url));
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https")) {
+            return new Response(false, 0, "", 0, "only http and https URLs can be downloaded: " + redact(url));
+        }
+        long started = System.nanoTime();
+        try {
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofMillis(timeoutMillis))
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/zip, application/octet-stream, text/plain, */*")
+                .GET()
+                .build();
+            HttpResponse<java.io.InputStream> response = client.send(request,
+                HttpResponse.BodyHandlers.ofInputStream());
+            java.nio.file.Path parent = target.getParent();
+            if (parent != null) java.nio.file.Files.createDirectories(parent);
+            long written;
+            try (var stream = response.body();
+                 var out = java.nio.file.Files.newOutputStream(target)) {
+                byte[] buffer = new byte[8192];
+                long total = 0;
+                int read;
+                while ((read = stream.read(buffer)) != -1) {
+                    total += read;
+                    if (total > maxResponseBytes) {
+                        out.close();
+                        java.nio.file.Files.deleteIfExists(target);
+                        String error = "download larger than " + maxResponseBytes
+                            + " bytes (security.limits.max-http-response-size)";
+                        logger.debug("Download " + redact(url) + " aborted: " + error);
+                        return new Response(false, response.statusCode(), "", elapsedMillis(started), error);
+                    }
+                    out.write(buffer, 0, read);
+                }
+                written = total;
+            }
+            boolean ok = response.statusCode() >= 200 && response.statusCode() < 400;
+            if (!ok) {
+                java.nio.file.Files.deleteIfExists(target);
+                return new Response(false, response.statusCode(), "", elapsedMillis(started),
+                    "server answered HTTP " + response.statusCode());
+            }
+            logger.debug("Downloaded " + redact(url) + " (" + written + " bytes)");
+            return new Response(true, response.statusCode(), Long.toString(written),
+                elapsedMillis(started), "");
+        } catch (java.net.http.HttpTimeoutException timeout) {
+            return new Response(false, 0, "", elapsedMillis(started), "timed out after " + timeoutMillis + "ms");
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return new Response(false, 0, "", elapsedMillis(started), "cancelled");
+        } catch (Exception error) {
+            String message = error.getClass().getSimpleName()
+                + (error.getMessage() == null ? "" : ": " + error.getMessage());
+            logger.debug("Download " + redact(url) + " failed: " + message);
+            return new Response(false, 0, "", elapsedMillis(started), message);
+        }
+    }
+
     private static long elapsedMillis(long startedNanos) {
         return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
