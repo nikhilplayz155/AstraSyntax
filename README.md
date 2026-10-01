@@ -368,7 +368,7 @@ runtime behaviour has **not** been exercised on a live Folia server here (see
 ## 11. Build with Gradle
 
 ```bash
-gradle clean build            # compiles, runs the 36 tests, writes build/libs/AstraSyntax-1.21.11-26.2.jar
+gradle clean build            # compiles, runs the 41 tests, writes build/libs/AstraSyntax-1.21.11-26.2.jar
 gradle test                   # tests only
 gradle processResources       # regenerates plugin.yml + astra/lib/*.jar staging
 ```
@@ -391,7 +391,7 @@ Artifact: **`build/libs/AstraSyntax-1.21.11-26.2.jar`**.
 ## 12. Build with Maven
 
 ```bash
-mvn -B clean package          # compiles, runs the 36 tests, writes target/AstraSyntax-1.21.11-26.2.jar
+mvn -B clean package          # compiles, runs the 41 tests, writes target/AstraSyntax-1.21.11-26.2.jar
 mvn -B test                   # tests only
 mvn -B dependency:copy-dependencies -DincludeScope=runtime   # fetch the drivers by hand if needed
 ```
@@ -457,7 +457,7 @@ gradle test          # Gradle
 tools/run-tests.sh   # offline fallback
 ```
 
-The suite (36 tests, JUnit 5) covers:
+The suite (41 tests, JUnit 5) covers:
 
 | Test | What it locks down |
 |---|---|
@@ -469,6 +469,7 @@ The suite (36 tests, JUnit 5) covers:
 | `EconomyTest` | affordability, deposit/withdraw maths behind `set`, "no provider" never looks like a zero balance |
 | `HttpServiceTest` | security gate before the request, response-size cap, timeouts, webhook JSON, credential redaction |
 | `LibLoaderTest` | nested driver extraction with SHA-256 reuse, unsafe entry names rejected, and a real SQLite connection opened through the isolated driver |
+| `PackagingTest` | `plugin.yml` declares the real main class, `api-version`, `folia-supported` and every documented subcommand; the nine configs and five examples are on the class path under the exact names the loader reads; security defaults stay opt-in |
 
 ---
 
@@ -505,11 +506,11 @@ Everything below was executed in this checkout. Commands are given so they can b
 |---|---|
 | Main sources compile (release 21) | **exit 0, 0 errors** — `tools/build-jar.sh`, and the same file set with the Eclipse batch compiler |
 | Test sources compile | **exit 0, 0 errors** |
-| Test suite | **36 of 36 pass** — `tools/run-tests.sh` |
+| Test suite | **41 of 41 pass** — `tools/run-tests.sh` |
 | Natural-language audit | 17 of 19 probe sentences compile into rules with real bodies; the 2 unsupported ones produce a diagnostic with suggestions (by design) |
 | JAR built | `dist/AstraSyntax-1.21.11-26.2.jar`, 306 entries (288 classes), 17,225,220 bytes, `sha256 ce0511c5c663d9f30c192c0b0dfad355acdd4c1b1f30e10b61b523a26613af5d` — rebuild any time with `tools/build-jar.sh` |
 | JAR integrity | `zipfile.testzip()` → no corrupt entry; main class, `LibLoader`, resources and both nested drivers present |
-| `plugin.yml` | parses as YAML, `version` expanded from `${project.version}`, `main: io.astra.plugin.AstraPlugin` present in the jar |
+| `plugin.yml` and the nine configs | parsed with a real YAML parser: `name`, `version` (expanded from `${project.version}`), `main: io.astra.plugin.AstraPlugin`, `api-version: 1.21`, `folia-supported: true`, 13 permissions and 11 documented subcommands; the configs inside the jar are byte-identical to the supplied files (SHA-256 compared) |
 | Driver loading | real SQLite connection opened through `LibLoader`'s extracted jar + `DriverShim` (unit test) |
 | Security enforcement | HTTP/domain/size/timeout denials covered by unit tests against a local HTTP server |
 | Config paths | the field names read by `ConfigManager` are taken from the nine supplied files; no key was renamed or invented |
