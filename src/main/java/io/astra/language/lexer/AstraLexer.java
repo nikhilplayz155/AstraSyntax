@@ -31,6 +31,7 @@ public final class AstraLexer {
     private int line;
     private int col;
     private boolean lineHasContent;
+    private boolean indentMeasured;
 
     public AstraLexer(DiagnosticCollector diag) {
         this.diag = diag;
@@ -46,6 +47,7 @@ public final class AstraLexer {
         this.line = 1;
         this.col = 1;
         this.lineHasContent = false;
+        this.indentMeasured = false;
 
         while (pos < src.length()) {
             char c = src.charAt(pos);
@@ -55,15 +57,21 @@ public final class AstraLexer {
                 pos++;
                 line++;
                 col = 1;
+                indentMeasured = false;
+                continue;
+            }
+            if (!indentMeasured) {
+                // The first character of a line settles its indentation, whether it is a
+                // space (a nested line) or real content (a line back at column zero, which
+                // must close the open block with a DEDENT). Measuring only on spaces would
+                // silently absorb every following top-level block into the previous one.
+                indentMeasured = true;
+                measureIndent();
                 continue;
             }
             if (c == ' ' || c == '\t') {
-                if (!lineHasContent) {
-                    measureIndent();
-                } else {
-                    pos++;
-                    col++;
-                }
+                pos++;
+                col++;
                 continue;
             }
             if (c == '/' && peek(1) == '/') { skipLineComment(); continue; }

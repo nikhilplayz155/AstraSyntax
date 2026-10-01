@@ -19,9 +19,9 @@ public record RecipeDefinition(String name, boolean shaped, List<String> shape, 
         resultAmount = Math.max(1, Math.min(64, resultAmount));
     }
 
-    /** Every distinct ingredient material referenced by the recipe. */
+    /** Every distinct ingredient material referenced by the recipe, in a stable order. */
     public List<String> ingredientMaterials() {
-        return ingredients.values().stream().distinct().toList();
+        return ingredients.values().stream().distinct().sorted().toList();
     }
 
     public int width() {

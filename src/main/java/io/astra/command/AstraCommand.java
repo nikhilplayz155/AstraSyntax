@@ -204,6 +204,9 @@ public final class AstraCommand implements CommandExecutor, TabCompleter {
         reply(sender, "<gray> - natural language: <white>"
             + (astra.config().main().naturalLanguage().enabled() ? "enabled" : "disabled")
             + "</white>, profiler: <white>" + (astra.profilerImpl().enabled() ? "on" : "off") + "</white></gray>");
+        if (astra.gameplay() != null) {
+            reply(sender, "<gray> - gameplay: <white>" + astra.gameplay().describe() + "</white></gray>");
+        }
         if (!astra.integrations().describe().isEmpty()) {
             reply(sender, "<gray> - integrations: <white>"
                 + String.join(", ", astra.integrations().describe()) + "</white></gray>");

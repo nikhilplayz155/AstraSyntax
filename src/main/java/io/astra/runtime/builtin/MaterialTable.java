@@ -201,12 +201,32 @@ public final class MaterialTable {
         }
     }
 
-    /** Up to three suggestions for a mistyped material name. */
+    /**
+     * Up to three suggestions for a mistyped material name.
+     *
+     * <p>Cached because the parser asks for the same misspelling once per template it
+     * probes, and ranking against the whole catalogue is not free. The cache is cleared
+     * wholesale when it grows past a few hundred entries, which keeps a hostile script
+     * from turning it into a memory leak.</p>
+     */
     public List<String> suggestions(String text) {
         if (Strings.isBlank(text)) return List.of();
+        String key = normalise(text);
+        List<String> cached = SUGGESTIONS.get(key);
+        if (cached != null) return cached;
         Set<String> pool = new LinkedHashSet<>(materialLookup.keySet());
-        return Strings.nearest(normalise(text), pool, 3);
+        List<String> computed = List.copyOf(Strings.nearest(key, pool, 3));
+        if (SUGGESTIONS.size() > 512) SUGGESTIONS.clear();
+        SUGGESTIONS.put(key, computed);
+        return computed;
     }
+
+    /** Small, bounded memo for {@link #suggestions(String)}. */
+    private static final java.util.Map<String, List<String>> SUGGESTIONS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The same, for entity type names. */
+    private static final java.util.Map<String, List<String>> ENTITY_SUGGESTIONS =
+        new java.util.concurrent.ConcurrentHashMap<>();
 
     /** All known material names (friendly form), for documentation and editors. */
     public Collection<String> materialNames() {
@@ -236,8 +256,14 @@ public final class MaterialTable {
 
     public List<String> entitySuggestions(String text) {
         if (Strings.isBlank(text)) return List.of();
+        String key = normalise(text);
+        List<String> cached = ENTITY_SUGGESTIONS.get(key);
+        if (cached != null) return cached;
         Set<String> pool = new LinkedHashSet<>(entityLookup.keySet());
-        return Strings.nearest(normalise(text), pool, 3);
+        List<String> computed = List.copyOf(Strings.nearest(key, pool, 3));
+        if (ENTITY_SUGGESTIONS.size() > 256) ENTITY_SUGGESTIONS.clear();
+        ENTITY_SUGGESTIONS.put(key, computed);
+        return computed;
     }
 
     public Collection<String> entityNames() {

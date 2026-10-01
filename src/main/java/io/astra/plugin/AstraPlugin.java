@@ -307,7 +307,7 @@ public final class AstraPlugin extends JavaPlugin implements RuntimeServices {
         try {
             FileUtil.ensureDirectory(folder);
             for (String name : List.of("01-welcome.ar", "02-natural-language.ar", "03-command.ar", "04-coins.ar",
-                "05-timer.ar")) {
+                "05-timer.ar", "06-gameplay.ar")) {
                 FileUtil.copyResourceIfMissing(getClassLoader(), "examples/" + name, folder.resolve(name));
             }
         } catch (Exception error) {

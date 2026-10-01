@@ -619,6 +619,7 @@ public final class AstraParser {
 
         while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
             Line line = lines.get(cursor);
+            int before = cursor;
             switch (line.head()) {
                 case "material", "type", "of" -> {
                     material = tokenText(line, 1);
@@ -655,6 +656,8 @@ public final class AstraParser {
                     cursor++;
                 }
             }
+            // A case that consumed nothing must still make progress.
+            if (cursor <= before) cursor = before + 1;
         }
         if (Strings.isBlank(material)) {
             problem(Severity.ERROR, "item", "Item '" + name + "' has no material",
@@ -689,6 +692,7 @@ public final class AstraParser {
 
         while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
             Line line = lines.get(cursor);
+            int before = cursor;
             switch (line.head()) {
                 case "title", "name" -> {
                     title = lineText(line, 1);
@@ -711,6 +715,7 @@ public final class AstraParser {
                     cursor++;
                 }
             }
+            if (cursor <= before) cursor = before + 1;
         }
         if (slots.isEmpty()) {
             problem(Severity.WARNING, "gui", "Menu '" + name + "' has no buttons",
@@ -737,6 +742,7 @@ public final class AstraParser {
 
         while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
             Line line = lines.get(cursor);
+            int before = cursor;
             switch (line.head()) {
                 case "item", "material" -> {
                     material = tokenText(line, 1);
@@ -756,6 +762,7 @@ public final class AstraParser {
                     if (statement != null) body.add(statement);
                 }
             }
+            if (cursor <= before) cursor = before + 1;
         }
         return new Declaration.MenuSlot(index, material == null ? "stone" : material.toLowerCase(Locale.ROOT),
             displayName, lore, new Stmt.Block(body, span(header)), span(header));
@@ -780,6 +787,7 @@ public final class AstraParser {
 
         while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
             Line line = lines.get(cursor);
+            int before = cursor;
             switch (line.head()) {
                 case "result" -> {
                     resultAmount = lineInt(line, 1, 1);
@@ -787,7 +795,10 @@ public final class AstraParser {
                     cursor++;
                 }
                 case "shape", "pattern" -> {
-                    shape.addAll(lineWords(line, 1));
+                    // Shape letters are case-insensitive but must keep their case: "D" and
+                    // "d" are the same key once normalised, and lowercase would break the
+                    // 'key <letter>' lookup for a script that wrote capital letters.
+                    for (String word : lineWords(line, 1)) shape.add(word.toUpperCase(Locale.ROOT));
                     shaped = true;
                     cursor++;
                 }
@@ -795,7 +806,7 @@ public final class AstraParser {
                     String key = tokenText(line, 1);
                     String material = tokenText(line, 2);
                     if (!Strings.isBlank(key) && !Strings.isBlank(material)) {
-                        ingredients.put(key, material.toLowerCase(Locale.ROOT));
+                        ingredients.put(key.toUpperCase(Locale.ROOT), material.toLowerCase(Locale.ROOT));
                     }
                     cursor++;
                 }
@@ -808,6 +819,7 @@ public final class AstraParser {
                     cursor++;
                 }
             }
+            if (cursor <= before) cursor = before + 1;
         }
         if (Strings.isBlank(resultMaterial)) {
             problem(Severity.ERROR, "recipe", "Recipe '" + name + "' has no result",
@@ -856,6 +868,7 @@ public final class AstraParser {
 
         while (cursor < lines.size() && lines.get(cursor).depth() > header.depth()) {
             Line line = lines.get(cursor);
+            int before = cursor;
             switch (line.head()) {
                 case "world" -> {
                     world = tokenText(line, 1);
@@ -879,6 +892,7 @@ public final class AstraParser {
                     cursor++;
                 }
             }
+            if (cursor <= before) cursor = before + 1;
         }
         if (first == null || second == null) {
             problem(Severity.ERROR, "region", "Region '" + name + "' needs two corners",
@@ -1027,6 +1041,9 @@ public final class AstraParser {
         List<Token> tokens = line.tokens();
         List<Token> conditionTokens = tokens.subList(1, tokens.size() - (endsWithColon(line) ? 1 : 0));
         Span conditionSpan = span(line);
+        // The header is consumed before the body is read; without this the enclosing body
+        // loop would see the same line again and parse it forever.
+        cursor++;
         Cond condition = parseConditions(conditionTokens, conditionSpan);
         Stmt.Block then = parseBody(line.depth());
         Stmt.Block otherwise = new Stmt.Block(List.of(), conditionSpan);
@@ -1080,6 +1097,8 @@ public final class AstraParser {
             }
         }
         variables.add(variable.toLowerCase(Locale.ROOT));
+        // The header is consumed before the body is read, so the enclosing loop advances.
+        cursor++;
         Stmt.Block body = parseBody(line.depth());
         long limit = 10000L;
         return new Stmt.Repeat(count, variable, body, limit, span(line));
@@ -1617,12 +1636,9 @@ public final class AstraParser {
         String name = joinText(slice.subList(index, slice.size()));
         if (name.isBlank()) return null;
         if (!vocabulary.isMaterial(name)) {
-            List<String> suggestions = vocabulary.materialSuggestions(name);
             Token first = slice.get(index);
-            pendingProblem = new Problem(Severity.ERROR, "material",
-                "Unknown item: " + name + (suggestions.isEmpty() ? "" : " (did you mean "
-                    + String.join(", ", suggestions) + "?)"), first,
-                "That name is not a Minecraft item.", suggestions);
+            pendingProblem = new Problem(Severity.ERROR, "material", "Unknown item: " + name, first,
+                "That name is not a Minecraft item.", () -> vocabulary.materialSuggestions(name));
             return null;
         }
         Expr material = new Expr.Lit(Value.str(name), span(slice));
@@ -1702,8 +1718,66 @@ public final class AstraParser {
     // ------------------------------------------------------------------ helpers
 
     /** A problem that was noticed while matching but is only reported if the match fails. */
-    private record Problem(Severity severity, String category, String message, Token token, String explanation,
-                           List<String> suggestions) { }
+    /**
+     * A diagnostic found while matching, kept until it is known to be the best one.
+     *
+     * <p>Suggestions are computed on demand: template matching probes a dozen alternatives
+     * for one line, and ranking a misspelling against the whole material catalogue on every
+     * probe is the difference between a snappy parse and a visible stall. The result is
+     * memoised, so asking twice is free.</p>
+     */
+    private static final class Problem {
+        private final Severity severity;
+        private final String category;
+        private final String message;
+        private final Token token;
+        private final String explanation;
+        private final java.util.function.Supplier<List<String>> suggestionSource;
+        private List<String> suggestions;
+
+        Problem(Severity severity, String category, String message, Token token, String explanation,
+                List<String> suggestions) {
+            this(severity, category, message, token, explanation, () -> suggestions);
+        }
+
+        Problem(Severity severity, String category, String message, Token token, String explanation,
+                java.util.function.Supplier<List<String>> suggestionSource) {
+            this.severity = severity;
+            this.category = category;
+            this.message = message;
+            this.token = token;
+            this.explanation = explanation;
+            this.suggestionSource = suggestionSource;
+        }
+
+        Severity severity() {
+            return severity;
+        }
+
+        String category() {
+            return category;
+        }
+
+        String message() {
+            return message;
+        }
+
+        Token token() {
+            return token;
+        }
+
+        String explanation() {
+            return explanation;
+        }
+
+        List<String> suggestions() {
+            if (suggestions == null) {
+                List<String> computed = suggestionSource == null ? List.of() : suggestionSource.get();
+                suggestions = computed == null ? List.of() : List.copyOf(computed);
+            }
+            return suggestions;
+        }
+    }
 
     private record Line(int depth, List<Token> tokens, int line, int column, String raw) {
         Token first() {
@@ -1842,8 +1916,16 @@ public final class AstraParser {
     }
 
     private void report(Problem problem) {
-        problem(problem.severity(), problem.category(), problem.message(), problem.token(),
-            problem.explanation(), problem.suggestions());
+        // Suggestions are resolved here, once, for the diagnostic that is actually kept.
+        // The "did you mean" clause is appended now so the message stays complete while the
+        // ranking only happens for the winner.
+        List<String> suggestions = problem.suggestions();
+        String message = problem.message();
+        if (!suggestions.isEmpty() && !message.contains("did you mean")) {
+            message = message + " (did you mean " + String.join(", ", suggestions) + "?)";
+        }
+        problem(problem.severity(), problem.category(), message, problem.token(),
+            problem.explanation(), suggestions);
     }
 
     private void problem(Severity severity, String category, String message, Token token, String explanation,

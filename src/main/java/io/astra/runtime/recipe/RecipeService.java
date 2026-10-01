@@ -67,7 +67,7 @@ public final class RecipeService {
                         complete = false;
                         break;
                     }
-                    recipe.setIngredient(ingredient.getKey().charAt(0), material);
+                    recipe.setIngredient(Character.toUpperCase(ingredient.getKey().charAt(0)), material);
                 }
                 added = complete && Bukkit.addRecipe(recipe);
             } else {

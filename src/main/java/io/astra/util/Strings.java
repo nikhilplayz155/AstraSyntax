@@ -123,14 +123,52 @@ public final class Strings {
         return bestDist <= tolerance ? best : null;
     }
 
-    /** Up to {@code limit} candidates ordered by similarity to {@code target}. */
+    /** Levenshtein distance, abandoned once it is known to exceed {@code max}. */
+    public static int levenshtein(String a, String b, int max) {
+        if (a == null) a = "";
+        if (b == null) b = "";
+        if (Math.abs(a.length() - b.length()) > max) return max + 1;
+        int[] prev = new int[b.length() + 1];
+        int[] cur = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) prev[j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            cur[0] = i;
+            int rowMinimum = cur[0];
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+                rowMinimum = Math.min(rowMinimum, cur[j]);
+            }
+            // No cell in this row can become smaller than rowMinimum, so the final
+            // distance is already known to be above the budget.
+            if (rowMinimum > max) return max + 1;
+            int[] tmp = prev; prev = cur; cur = tmp;
+        }
+        return prev[b.length()];
+    }
+
+    /**
+     * Up to {@code limit} candidates ordered by similarity to {@code target}.
+     *
+     * <p>Candidate length is checked before any distance is computed, and the distance
+     * itself is abandoned as soon as it exceeds the budget. Without both, ranking a typo
+     * against a catalogue of fifteen hundred material names takes tens of milliseconds,
+     * which is felt when the parser probes a dozen templates for one unknown word.</p>
+     */
     public static List<String> nearest(String target, Iterable<String> options, int limit) {
-        List<String> pool = new ArrayList<>();
-        for (String o : options) if (o != null) pool.add(o);
+        if (limit <= 0) return List.of();
         String lower = target == null ? "" : target.toLowerCase(Locale.ROOT);
+        // A useful suggestion is never wildly longer or shorter than what was typed.
+        int budget = Math.max(2, lower.length() / 3 + 1) + 1;
+        List<String> pool = new ArrayList<>();
+        for (String option : options) {
+            if (option == null) continue;
+            if (Math.abs(option.length() - lower.length()) > budget) continue;
+            pool.add(option);
+        }
         pool.sort((a, b) -> Integer.compare(
-            levenshtein(lower, a.toLowerCase(Locale.ROOT)),
-            levenshtein(lower, b.toLowerCase(Locale.ROOT))));
+            levenshtein(lower, a.toLowerCase(Locale.ROOT), budget),
+            levenshtein(lower, b.toLowerCase(Locale.ROOT), budget)));
         return pool.size() > limit ? new ArrayList<>(pool.subList(0, limit)) : pool;
     }
 

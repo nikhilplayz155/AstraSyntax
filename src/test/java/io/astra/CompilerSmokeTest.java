@@ -82,6 +82,36 @@ class CompilerSmokeTest {
     }
 
     @Test
+    void gameplayExampleParsesAndCompiles() {
+        ParseResult ast = parse(read("06-gameplay.ar"));
+        AstraCompiler compiler = new AstraCompiler();
+        io.astra.language.compiler.CompilationResult result = compiler.compile(ast);
+        assertTrue(result.errors().isEmpty(), () -> "Compile errors: " + result.errors());
+        assertFalse(result.script().items().isEmpty(), "the example declares a custom item");
+        assertFalse(result.script().menus().isEmpty(), "the example declares a menu");
+        assertFalse(result.script().recipes().isEmpty(), "the example declares a recipe");
+        assertFalse(result.script().regions().isEmpty(), "the example declares a region");
+    }
+
+    /**
+     * A blank line between two rules must not swallow the second one: the lexer has to
+     * close the first block before the next top-level line is read.
+     */
+    @Test
+    void topLevelBlocksSeparatedByBlankLinesAllCompile() {
+        String source = "on player join:\n"
+            + "    tell player \"hi\"\n"
+            + "\n"
+            + "on player quit:\n"
+            + "    tell player \"bye\"\n";
+        ParseResult ast = parse(source);
+        io.astra.language.compiler.CompilationResult result = new AstraCompiler().compile(ast);
+        assertTrue(result.errors().isEmpty(), () -> "Compile errors: " + result.errors());
+        assertEquals(2, result.script().rules().size(),
+            () -> "both top-level blocks must compile: " + result.script().rules());
+    }
+
+    @Test
     void typoSuggestsDiamonds() {
         String src = "on player join:\n    give player 5 dimonds\n";
         DiagnosticCollector diag = new DiagnosticCollector();

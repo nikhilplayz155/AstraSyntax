@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# Gameplay systems: custom items, menus, recipes, regions, scoreboards,
+# boss bars, holograms, quests and NPCs. Everything in this script is declared
+# data - items, menus, recipes and regions are compiled once at load, never
+# interpreted while an event runs.
+#
+# Turn any of it off with config.yml -> features.
+# ---------------------------------------------------------------------------
+
+item legendary_sword:
+    material diamond_sword
+    name "&6&lLegendary Sword"
+    lore "&7Forged in Astra"
+    lore "&7Click a shopkeeper to buy one"
+    enchant sharpness 5
+    enchant unbreaking 3
+    unbreakable true
+    flags hide-attributes
+
+menu shop:
+    title "&8&lAstra Shop"
+    rows 3
+    slot 11:
+        item diamond
+        name "&bBuy 5 diamonds"
+        lore "&7Costs 100 coins"
+        give player 5 diamonds
+        tell player "&aPurchased 5 diamonds!"
+    slot 13:
+        item legendary_sword
+        name "&6Legendary Sword"
+        lore "&7The finest blade in the land"
+        give player 1 custom item legendary_sword
+    slot 15:
+        item barrier
+        name "&cClose"
+        close menu of player
+
+recipe legendary_sword:
+    result 1 diamond_sword
+    shape "D"
+    shape "S"
+    key D diamond
+    key S stick
+
+region spawn_area:
+    world world
+    from -50 0 -50
+    to 50 256 50
+
+on player join:
+    start quest tutorial with goal 3 for player
+    create scoreboard stats titled "&6&lAstra &fStats"
+    set line 1 of scoreboard stats to "&7Welcome, &f%player_name%"
+    set line 2 of scoreboard stats to "&7Quest: &f%quest_progress%"
+    show scoreboard stats to player
+    create bossbar welcome titled "&aThanks for playing!" colored green
+    show bossbar welcome to player
+
+on player enters the spawn_area region:
+    tell player "&aWelcome to spawn, %player_name%!"
+    create hologram spawn_sign at player's location with text "&6&lSPAWN"
+
+on player leaves the spawn_area region:
+    tell player "&7You left spawn."
+    remove hologram spawn_sign
+
+on player breaks diamond ore:
+    add 1 progress to quest tutorial for player
+    if player has completed quest tutorial:
+        tell player "&6Quest complete! Here is your reward."
+        give player 1 custom item legendary_sword
+        complete quest tutorial for player

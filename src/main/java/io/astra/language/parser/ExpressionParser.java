@@ -63,6 +63,26 @@ final class ExpressionParser {
 
     private static final ThreadLocal<Integer> NESTING = ThreadLocal.withInitial(() -> 0);
 
+    /**
+     * How many call-shaped templates one strict parse may probe before it gives up.
+     *
+     * <p>Trying registered expression templates is a backtracking search: a fragment that
+     * is not an expression at all (a mistyped condition, for instance) makes every template
+     * probe every split of its arguments, and a slot that recurses turns that into an
+     * exponential walk. This budget bounds the search, so an unrecognised line reports a
+     * diagnostic in microseconds instead of stalling the server thread for minutes. Real
+     * scripts use a handful of probes, so nothing that used to parse stops parsing.</p>
+     */
+    private static final int MAX_CALL_ATTEMPTS = 512;
+
+    /**
+     * The budget is shared by every parser instance in one strict parse: a recursive slot
+     * creates a fresh instance, so a per-instance counter would reset on every level and
+     * never fire - which is exactly the failure it exists to bound.
+     */
+    private static final ThreadLocal<int[]> CALL_ATTEMPTS = ThreadLocal.withInitial(() -> new int[1]);
+
+
     private ExpressionParser(List<Token> tokens, Resolver resolver) {
         this.tokens = tokens;
         this.resolver = resolver;
@@ -80,6 +100,8 @@ final class ExpressionParser {
         int depth = NESTING.get();
         if (depth >= MAX_NESTING_DEPTH) return null;
         NESTING.set(depth + 1);
+        int[] budget = CALL_ATTEMPTS.get();
+        if (depth == 0) budget[0] = 0;
         try {
             ExpressionParser parser = new ExpressionParser(tokens, resolver);
             Expr expression = parser.parseOr();
@@ -401,6 +423,8 @@ final class ExpressionParser {
         // remaining input, which could only re-enter this same grammar at this position.
         int depth = callDepth;
         if (depth >= MAX_CALL_DEPTH) return null;
+        int[] budget = CALL_ATTEMPTS.get();
+        if (++budget[0] > MAX_CALL_ATTEMPTS) return null;
         int available = remaining.size();
         Expr best = null;
         int bestScore = -1;

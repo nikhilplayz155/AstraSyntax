@@ -25,7 +25,7 @@ class PackagingTest {
 
     private static final List<String> EXAMPLES = List.of(
         "examples/01-welcome.ar", "examples/02-natural-language.ar", "examples/03-command.ar",
-        "examples/04-coins.ar", "examples/05-timer.ar");
+        "examples/04-coins.ar", "examples/05-timer.ar", "examples/06-gameplay.ar");
 
     private static String resource(String name) {
         try (InputStream in = PackagingTest.class.getClassLoader().getResourceAsStream(name)) {

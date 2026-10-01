@@ -91,6 +91,12 @@ public final class AstraCompiler {
         Map.entry("set-mob-health", "custom-mobs"),
         Map.entry("set-mob-name", "custom-mobs"),
         Map.entry("make-mob-target", "custom-mobs"),
+        Map.entry("give-custom-item", "custom-items"),
+        Map.entry("start-quest", "quests"),
+        Map.entry("quest-percent", "quests"),
+        Map.entry("menu-open", "gui"),
+        Map.entry("is-npc", "npc"),
+        Map.entry("npc-look", "npc"),
         Map.entry("add-quest-progress", "quests"),
         Map.entry("complete-quest", "quests"),
         Map.entry("reset-quest", "quests"),
@@ -313,10 +319,10 @@ public final class AstraCompiler {
                     }
                     for (char symbol : row.toCharArray()) {
                         if (symbol == ' ') continue;
-                        if (!declaration.ingredients().containsKey(String.valueOf(symbol))) {
+                        if (!declaration.ingredients().containsKey(String.valueOf(symbol).toUpperCase(Locale.ROOT))) {
                             error(declaration.span(), "The shape uses '" + symbol + "' but no key defines it",
                                 "Every character in the shape needs a 'key <letter> <material>' line.",
-                                List.of("key " + symbol + " diamond"));
+                                List.of("key " + Character.toUpperCase(symbol) + " diamond"));
                             return;
                         }
                     }

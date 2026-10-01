@@ -95,6 +95,17 @@ public final class NaturalLanguageCompiler {
             "^(?:when|whenever|if)\\s+(?:a|an|the)?\\s*players?\\s+"
                 + "(?:joins?|connects?|logs?\\s+in)\\s+(?:for\\s+the\\s+)?first\\s+time\\s*,?\\s*(.*)$"),
             (compiler, groups, sentence, span) -> compiler.firstTimeRule(groups.group(1), sentence, span)),
+        new PatternRule("region-enter", Pattern.compile(
+            "^(?:when|whenever|if)\\s+(?:a|an|the)?\\s*players?\\s+(?:enters?|walks?\\s+into|steps?\\s+into)\\s+"
+                + "(?:the\\s+)?([a-z0-9_-]+)\\s+region\\s*,?\\s*(.*)$"),
+            (compiler, groups, sentence, span) -> compiler.regionRule("region enter", groups.group(1),
+                groups.group(2), sentence, span)),
+        new PatternRule("region-leave", Pattern.compile(
+            "^(?:when|whenever|if)\\s+(?:a|an|the)?\\s*players?\\s+"
+                + "(?:leaves?|exits?|walks?\\s+out\\s+of|steps?\\s+out\\s+of)\\s+(?:the\\s+)?"
+                + "([a-z0-9_-]+)\\s+region\\s*,?\\s*(.*)$"),
+            (compiler, groups, sentence, span) -> compiler.regionRule("region leave", groups.group(1),
+                groups.group(2), sentence, span)),
         new PatternRule("join", Pattern.compile(
             "^(?:when|whenever|if)\\s+(?:a|an|the)?\\s*players?\\s+(?:joins?|connects?|logs?\\s+in)\\s*,?\\s*(.*)$"),
             (compiler, groups, sentence, span) -> compiler.eventRule("player join", groups.group(1), sentence, span)),
@@ -268,6 +279,19 @@ public final class NaturalLanguageCompiler {
     private List<Declaration> eventRule(String triggerId, String actions, String sentence, Span span) {
         List<Stmt> body = compileActions(actions, span, false);
         return List.of(new Declaration.Event(triggerId, List.of(), new Stmt.Block(body, span), 0, span));
+    }
+
+    /**
+     * "when a player enters the spawn region, ..." compiles to a region trigger filtered to
+     * that region, so the rule runs on the crossing and never on every movement tick.
+     */
+    private List<Declaration> regionRule(String triggerId, String region, String actions, String sentence,
+                                         Span span) {
+        List<Cond> filters = new ArrayList<>();
+        String name = cleanVerb(region);
+        if (name != null) filters.add(eventProperty("region", new Expr.Lit(Value.str(name), span), span));
+        List<Stmt> body = compileActions(actions, span, false);
+        return List.of(new Declaration.Event(triggerId, filters, new Stmt.Block(body, span), 0, span));
     }
 
     private List<Declaration> killRule(String mob, String actions, String sentence, Span span) {
